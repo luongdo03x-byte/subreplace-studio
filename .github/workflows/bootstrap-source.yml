@@ -1,0 +1,39 @@
+name: Bootstrap source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct source tree
+        run: |
+          set -euo pipefail
+          cat .bootstrap/source7/p* | base64 -d > /tmp/subreplace.tar.xz
+          mkdir -p /tmp/src
+          tar -xJf /tmp/subreplace.tar.xz -C /tmp/src
+
+          test -f /tmp/src/pyproject.toml
+          test -f /tmp/src/app/workers/runner.py
+          test -f /tmp/src/app/providers/ocr/paddle_common.py
+
+          # Replace everything except .git with the exact verified source archive.
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a /tmp/src/. .
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: import SubReplace Studio 0.2.1 source"
+          git push origin HEAD:main
