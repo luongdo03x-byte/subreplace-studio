@@ -37,3 +37,5 @@ jobs:
           git add -A
           git commit -m "feat: import SubReplace Studio 0.2.1 source"
           git push origin HEAD:main
+
+# Trigger after all verified source chunks are present.
