@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subreplace-studio"
+version = "0.2.2"
+description = "Local hard-subtitle replacement studio"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "keyring>=25",
+  "numpy>=2.0",
+  "opencv-python>=4.10",
+]
+
+[project.optional-dependencies]
+desktop = ["PySide6>=6.7"]
+media = ["av>=13"]
+ai = [
+  "faster-whisper>=1.0",
+  "paddleocr>=3.0",
+  "paddlepaddle>=3.2",
+]
+cloud = [
+  "openai>=1.0",
+  "google-genai>=1.0",
+]
+dev = [
+  "pytest>=8",
+  "build>=1.2",
+]
+
+[project.scripts]
+subreplace-batch = "app.cli:main"
+subreplace-studio = "app.main:run_app"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
