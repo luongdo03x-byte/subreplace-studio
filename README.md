@@ -1,10 +1,12 @@
 # SubReplace Studio 0.3.0
 
-SubReplace Studio removes burned-in Chinese dialogue subtitles, protects watermark text, translates the recovered dialogue, and renders replacement subtitles at the original anchors.
+SubReplace Studio is a local Windows/Linux desktop pipeline for replacing burned-in Chinese dialogue subtitles with Vietnamese or English while preserving watermark pixels and reconstructing the original background.
+
+**Eraser rule:** no black rectangles, blur boxes, crop/zoom tricks, or translated text drawn over unerased Chinese. Low-confidence reconstruction is routed to review or an installed temporal inpainting provider.
 
 ## Clone And Run
 
-The first run creates a local `.venv` and installs the application dependencies. Git, Python 3.11-3.13, FFmpeg, and FFprobe must already be available.
+The first run creates a local `.venv` and installs all application dependencies. Git, Python 3.11-3.13, FFmpeg, and FFprobe must already be available.
 
 Linux:
 
@@ -24,17 +26,23 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\run-windows.ps1
 ```
 
-Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. AI models are downloaded on demand during the first processing job.
+Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. PaddleOCR and Whisper models are downloaded on demand during the first processing job.
 
 ## Multi-Video Queue
 
-- Select up to 10 videos in one batch.
-- Reorder the list with the Up and Down buttons.
-- Videos are processed strictly one at a time to keep memory and GPU usage bounded.
-- Every successful source produces its own translated MP4.
-- Enable the merge option to also create one long MP4 in the selected order.
-- Failed videos are reported and skipped; successful videos can still be merged.
-- Output MP4 files contain burned-in subtitles. Matching SRT sidecars are not created automatically, preventing duplicate subtitles in players such as VLC.
+- Select and reorder up to 10 videos.
+- Process videos strictly one at a time to keep memory and GPU usage bounded.
+- Produce one translated MP4 for every successful source.
+- Optionally create one long MP4 in the selected order.
+- Normalize dimensions, FPS, sample aspect ratio, and audio before concatenation.
+- Skip failed videos while allowing successful videos to be merged.
+- Do not create matching SRT sidecars automatically, preventing duplicate subtitles in VLC.
+
+## Workflow
+
+`source video -> media probe -> text events -> PaddleOCR -> optional Whisper ASR -> dialogue/watermark classification -> protected erase -> translation -> FFmpeg/libass render -> export`
+
+The desktop application includes event-based OCR, isolated subprocess workers, durable jobs with retry/cancellation, ProPainter/E2FGVI plugin validation, subtitle editing, synchronized preview, diagnostics, and portable project packages.
 
 ## Requirements
 
@@ -42,12 +50,12 @@ Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. AI models a
 - Python 3.11-3.13. Python 3.12 is recommended.
 - FFmpeg and FFprobe on `PATH`.
 - At least 8 GB RAM and 5 GB free disk space.
-- Internet access on first run for PaddleOCR and Whisper model downloads.
-- An OpenAI or Gemini API key, a compatible custom endpoint, or a configured local translation command.
+- Internet access for initial dependency/model downloads.
+- An OpenAI or Gemini API key, compatible custom endpoint, or local translation command.
 
 CUDA is optional. The classical eraser and CPU OCR path work without an NVIDIA GPU.
 
-## Install
+## Release Installers
 
 Extract the release ZIP before running its installer.
 
@@ -65,14 +73,15 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install-windows.ps1
 ```
 
-Launch the desktop UI with `subreplace-studio`, or use `subreplace-batch --help` for automation.
+Launch the desktop UI with `subreplace-studio`, or use `subreplace-batch --help` for single-video automation.
 
-## Portable behavior
+## Development
 
-- User settings and model component paths are stored under the operating system user data directory.
-- API keys can be remembered through the operating system keyring and are not written into project files.
-- PaddleOCR and Whisper download their model files on first use.
-- Each video receives its own project cache; no event or timing from another video is reused.
-- Finished videos and SRT files from different projects can be published into one output folder with source-based filenames.
+```bash
+python -m pip install -e '.[dev,desktop,media,ai,cloud]'
+python -m pytest -q
+```
 
-Version 0.3.0 adds a sequential multi-video queue, optional normalized video concatenation, duplicate-subtitle prevention, frame-level subtitle recovery, high-pass residual gates, Navier-Stokes reconstruction, and stroke-level watermark protection.
+API keys can be stored through the operating-system keyring and are not written to project files. Models, project caches, videos, virtual environments, and release artifacts are excluded from Git.
+
+Version 0.3.0 adds the sequential multi-video queue, optional normalized concatenation, duplicate-subtitle prevention, frame-level subtitle recovery, Navier-Stokes reconstruction, and stroke-level watermark protection.
