@@ -2,7 +2,7 @@
 
 The source videos carry burned-in Chinese subtitles at ~2/3 frame height.
 Rendering the Vietnamese replacement at the fixed bottom margin left both
-visible ("lech"). Segments with an anchor must emit ASS \pos.
+visible ("lech"). Segments with an anchor must emit ASS \\pos.
 """
 from pathlib import Path
 
