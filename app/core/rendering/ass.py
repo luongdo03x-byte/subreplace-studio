@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from statistics import median
 
 from app.models.subtitle import SubtitleSegment
 
@@ -56,6 +57,13 @@ def write_ass(
     width, height = frame_size
     layout = SubtitleLayout()
     events: list[str] = []
+    anchors = [segment.anchor for segment in segments if segment.anchor is not None]
+    fixed_anchor = None
+    if anchors:
+        fixed_anchor = (
+            min(max(0, round(median(anchor[0] for anchor in anchors))), width),
+            min(max(0, round(median(anchor[1] for anchor in anchors))), height),
+        )
     for segment in segments:
         text = segment.translated_text.strip()
         if not text:
@@ -63,12 +71,10 @@ def write_ass(
         laid_out = layout.layout(text, style, frame_size=frame_size)
         rendered = r"\N".join(_escape_ass(line) for line in laid_out.lines)
         override = f"{{\\fs{laid_out.font_size}}}"
-        if segment.anchor is not None:
-            # Anchor at the original burned-in subtitle's bottom-center so the
-            # replacement line occupies the same position instead of the
-            # default bottom margin.
-            cx = min(max(0, int(segment.anchor[0])), width)
-            cy = min(max(0, int(segment.anchor[1])), height)
+        if fixed_anchor is not None:
+            # A shared median anchor follows the source subtitle region while
+            # preventing frame-to-frame OCR jitter from moving translated text.
+            cx, cy = fixed_anchor
             override = f"{{\\pos({cx},{cy})\\fs{laid_out.font_size}}}"
         events.append(
             f"Dialogue: 0,{_ass_time(segment.start_ms)},{_ass_time(segment.end_ms)},Default,,0,0,0,,{override}{rendered}"

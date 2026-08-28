@@ -1,8 +1,8 @@
-"""Translated subtitles must render at the original subtitle's position.
+"""Translated subtitles must render at a stable original subtitle position.
 
 The source videos carry burned-in Chinese subtitles at ~2/3 frame height.
 Rendering the Vietnamese replacement at the fixed bottom margin left both
-visible ("lech"). Segments with an anchor must emit ASS \\pos.
+visible ("lech"). Anchored segments share a median ASS \\pos to avoid jitter.
 """
 from pathlib import Path
 
@@ -46,3 +46,15 @@ def test_anchor_clamped_to_frame(tmp_path):
     write_ass(tmp_path / "c.ass", [seg], SubtitleStyle(), frame_size=(720, 1280))
     events = _events_text(tmp_path / "c.ass")
     assert r"{\pos(720,1280)" in events[0]
+
+
+def test_segments_share_median_anchor(tmp_path):
+    segments = [
+        _segment(anchor=(300, 900)),
+        _segment(anchor=(360, 910)),
+        _segment(anchor=(500, 950)),
+    ]
+    write_ass(tmp_path / "d.ass", segments, SubtitleStyle(), frame_size=(720, 1280))
+    events = _events_text(tmp_path / "d.ass")
+    assert len(events) == 3
+    assert all(r"{\pos(360,910)" in event for event in events)
