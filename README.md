@@ -1,4 +1,4 @@
-# SubReplace Studio 0.2.2
+# SubReplace Studio 0.3.0
 
 SubReplace Studio removes burned-in Chinese dialogue subtitles, protects watermark text, translates the recovered dialogue, and renders replacement subtitles at the original anchors.
 
@@ -25,6 +25,16 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. AI models are downloaded on demand during the first processing job.
+
+## Multi-Video Queue
+
+- Select up to 10 videos in one batch.
+- Reorder the list with the Up and Down buttons.
+- Videos are processed strictly one at a time to keep memory and GPU usage bounded.
+- Every successful source produces its own translated MP4.
+- Enable the merge option to also create one long MP4 in the selected order.
+- Failed videos are reported and skipped; successful videos can still be merged.
+- Output MP4 files contain burned-in subtitles. Matching SRT sidecars are not created automatically, preventing duplicate subtitles in players such as VLC.
 
 ## Requirements
 
@@ -65,4 +75,4 @@ Launch the desktop UI with `subreplace-studio`, or use `subreplace-batch --help`
 - Each video receives its own project cache; no event or timing from another video is reused.
 - Finished videos and SRT files from different projects can be published into one output folder with source-based filenames.
 
-Version 0.2.2 adds frame-level recovery for subtitle intervals missed by the primary detector, high-pass residual gates, bright-glyph plus temporal masks, Navier-Stokes reconstruction, and stroke-level watermark protection.
+Version 0.3.0 adds a sequential multi-video queue, optional normalized video concatenation, duplicate-subtitle prevention, frame-level subtitle recovery, high-pass residual gates, Navier-Stokes reconstruction, and stroke-level watermark protection.

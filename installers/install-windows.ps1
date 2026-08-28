@@ -2,9 +2,9 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptDir
-$Wheel = Join-Path $ScriptDir "subreplace_studio-0.2.2-py3-none-any.whl"
+$Wheel = Join-Path $ScriptDir "subreplace_studio-0.3.0-py3-none-any.whl"
 if (-not (Test-Path $Wheel)) {
-    $Wheel = Join-Path $RootDir "dist\subreplace_studio-0.2.2-py3-none-any.whl"
+    $Wheel = Join-Path $RootDir "dist\subreplace_studio-0.3.0-py3-none-any.whl"
 }
 $InstallDir = if ($env:SUBREPLACE_INSTALL_DIR) { $env:SUBREPLACE_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "SubReplaceStudio\runtime" }
 
@@ -61,6 +61,6 @@ $Shortcut.TargetPath = $StudioExe
 $Shortcut.WorkingDirectory = $InstallDir
 $Shortcut.Save()
 
-Write-Host "Installed SubReplace Studio 0.2.2"
+Write-Host "Installed SubReplace Studio 0.3.0"
 Write-Host "Desktop shortcut: SubReplace Studio"
 Write-Host "Batch command: $BatchExe"

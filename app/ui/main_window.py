@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import shutil
+import threading
 
 from .qt_compat import PYSIDE6_AVAILABLE, require_pyside6
 
@@ -12,6 +12,7 @@ if PYSIDE6_AVAILABLE:
         QStackedWidget, QVBoxLayout, QWidget,
     )
     from app.application.session import StudioSession
+    from app.application.batch import BatchController, BatchItem, BatchResult
     from app.application.subtitle_document import SubtitleDocumentService
     from app.application.export_service import ExportService
     from app.application.model_manager_controller import ModelManagerController
@@ -28,6 +29,9 @@ if PYSIDE6_AVAILABLE:
 
     class _UiSignals(QObject):
         stage_event = Signal(object)
+        batch_stage = Signal(int, int, object)
+        batch_item = Signal(int, int, object, str, str)
+        batch_finished = Signal(object)
 
     class MainWindow(QMainWindow):
         def __init__(self):
@@ -41,9 +45,14 @@ if PYSIDE6_AVAILABLE:
             self.export_service = ExportService()
             self.signals = _UiSignals()
             self.signals.stage_event.connect(self._on_stage_event)
+            self.signals.batch_stage.connect(self._on_batch_stage)
+            self.signals.batch_item.connect(self._on_batch_item)
+            self.signals.batch_finished.connect(self._on_batch_finished)
             self._last_request: ProjectStartRequest | None = None
             self._output_dir: Path | None = None
             self._output_stem = "video"
+            self._batch_controller: BatchController | None = None
+            self._batch_thread: threading.Thread | None = None
 
             shell = QWidget(); root = QHBoxLayout(shell); sidebar = QVBoxLayout()
             brand = QLabel("SUBREPLACE STUDIO"); brand.setObjectName("brand"); sidebar.addWidget(brand)
@@ -82,11 +91,13 @@ if PYSIDE6_AVAILABLE:
                 lambda: self._set_review_decision("scene_text")
             )
 
-        def _request_from_form(self) -> ProjectStartRequest:
+        def _request_from_form(self, source_text: str, *, batch_index: int = 1, batch_total: int = 1) -> ProjectStartRequest:
             view = self.project_view
-            source_text = view.source_path.text().strip()
             source = Path(source_text) if source_text else Path("video.mp4")
-            project_name = view.project_name.text().strip() or source.stem
+            base_name = view.project_name.text().strip()
+            project_name = source.stem if batch_total > 1 else (base_name or source.stem)
+            if batch_total > 1:
+                project_name = f"{batch_index:02d}-{project_name}"
             safe_name = "".join(char if char.isalnum() or char in "-_" else "-" for char in project_name).strip("-") or "video"
             project_parent = app_data_root() / "projects"
             project_root = project_parent / safe_name
@@ -94,8 +105,6 @@ if PYSIDE6_AVAILABLE:
             while project_root.exists() and any(project_root.iterdir()):
                 project_root = project_parent / f"{safe_name}-{suffix}"
                 suffix += 1
-            self._output_dir = Path(view.project_root.text().strip() or (Path.home() / "Videos")).expanduser().resolve()
-            self._output_stem = source.stem or safe_name
             temporal_provider = str(view.temporal_provider.currentData())
             repo_dir = view.temporal_repo_dir.text().strip()
             if not repo_dir and temporal_provider in {"propainter", "e2fgvi"}:
@@ -118,33 +127,54 @@ if PYSIDE6_AVAILABLE:
             )
 
         def _start_processing(self) -> None:
-            request = self._request_from_form()
-            if not request.source_path:
+            sources = self.project_view.selected_sources()
+            if not sources:
                 QMessageBox.warning(self, "Thiếu video", "Hãy chọn video cần dịch.")
+                return
+            if self._batch_thread is not None and self._batch_thread.is_alive():
+                QMessageBox.information(self, "Đang xử lý", "Hàng đợi video hiện tại chưa hoàn tất.")
                 return
             if not self.project_view.save_api_key():
                 QMessageBox.warning(self, "API key", "Không thể lưu API key vào kho mật khẩu; key vẫn dùng được cho lần chạy này.")
-            try:
-                handle, report = self.view_model.start(request, on_progress=self.signals.stage_event.emit)
-            except PreflightFailedError as exc:
-                details = "\n".join(f"{item.name}: {item.status.value} — {item.message}" for item in exc.report.checks)
-                QMessageBox.critical(self, "Pre-flight failed", details)
-                return
-            except Exception as exc:
-                QMessageBox.critical(self, "Cannot start project", str(exc))
-                return
-            self._last_request = request
+            view = self.project_view
+            self._output_dir = Path(view.project_root.text().strip() or (Path.home() / "Videos")).expanduser().resolve()
+            target = str(view.target_language.currentData())
+            items = []
+            for index, source_text in enumerate(sources, start=1):
+                request = self._request_from_form(source_text, batch_index=index, batch_total=len(sources))
+                prefix = f"{index:02d}_" if len(sources) > 1 else ""
+                output = self._output_dir / f"{prefix}{Path(source_text).stem}_{target}.mp4"
+                items.append(BatchItem(request, output))
+            self._last_request = items[0].request if len(items) == 1 else None
+            merged = None
+            if view.merge_outputs.isChecked() and len(items) > 1:
+                name = view.project_name.text().strip() or "merged"
+                safe = "".join(char if char.isalnum() or char in "-_" else "-" for char in name).strip("-") or "merged"
+                merged = self._output_dir / f"{safe}_{target}_merged.mp4"
+            self._batch_controller = BatchController(self.view_model)
+            self._batch_thread = threading.Thread(
+                target=self._run_batch, args=(tuple(items), merged), name="SubReplaceBatchController", daemon=True
+            )
             self.processing_view.cancel_button.setEnabled(True)
+            self.processing_view.retry_button.setEnabled(False)
             self.navigation.setCurrentRow(1)
-            self.diagnostics_view.set_report({
-                "preflight": [
-                    {"name": item.name, "status": item.status.value, "message": item.message}
-                    for item in report.checks
-                ],
-                "job_id": handle.job_id,
-            })
+            self.processing_view.job_status.setText(f"Hàng đợi: 0/{len(items)} video")
+            self._batch_thread.start()
+
+        def _run_batch(self, items: tuple[BatchItem, ...], merged: Path | None) -> None:
+            assert self._batch_controller is not None
+            result = self._batch_controller.run(
+                items,
+                merged_output=merged,
+                on_progress=self.signals.batch_stage.emit,
+                on_item=self.signals.batch_item.emit,
+            )
+            self.signals.batch_finished.emit(result)
 
         def _retry_processing(self) -> None:
+            if self._batch_thread is not None and self._batch_thread.is_alive():
+                QMessageBox.information(self, "Hàng đợi", "Video lỗi sẽ được bỏ qua; hàng đợi đang tiếp tục.")
+                return
             request = self._last_request
             project = self.session.current_project
             handle = self.session.current_handle
@@ -166,7 +196,10 @@ if PYSIDE6_AVAILABLE:
                 QMessageBox.critical(self, "Retry failed", str(exc))
 
         def _cancel_processing(self) -> None:
-            self.session.cancel()
+            if self._batch_controller is not None:
+                self._batch_controller.cancel()
+            else:
+                self.session.cancel()
             self.processing_view.cancel_button.setEnabled(False)
             self.processing_view.job_status.setText("Job: cancelling…")
 
@@ -210,21 +243,42 @@ if PYSIDE6_AVAILABLE:
             if event.status.value == "completed" and event.stage in {"classify_text_events", "translate_events"}:
                 self._refresh_subtitles()
             if event.status.value == "completed" and event.stage == "render_final":
-                self.processing_view.cancel_button.setEnabled(False)
                 project = self.session.current_project
                 if project is not None:
                     final = project.root / "exports" / f"final_{project.target_language}.mp4"
                     self.preview_view.set_sources(project.source_path, final if final.is_file() else None)
                     self._refresh_subtitles()
-                    published = final
-                    if final.is_file() and self._output_dir is not None:
-                        self._output_dir.mkdir(parents=True, exist_ok=True)
-                        published = self._output_dir / f"{self._output_stem}_{project.target_language}.mp4"
-                        shutil.copy2(final, published)
-                        # The MP4 already contains burned-in subtitles. A
-                        # matching sidecar makes players such as VLC show it twice.
-                        published.with_suffix(".srt").unlink(missing_ok=True)
-                    QMessageBox.information(self, "Hoàn tất", f"Video đã dịch: {published}")
+
+        def _on_batch_stage(self, index: int, total: int, event) -> None:
+            self.processing_view.set_stage_event(event)
+            self.processing_view.job_status.setText(
+                f"Video {index}/{total}: {event.stage} - {event.status.value} {event.message}".strip()
+            )
+
+        def _on_batch_item(self, index: int, total: int, source: Path, status: str, message: str) -> None:
+            self.processing_view.job_status.setText(
+                f"Video {index}/{total}: {source.name} - {status} {message}".strip()
+            )
+
+        def _on_batch_finished(self, result: BatchResult) -> None:
+            self.processing_view.cancel_button.setEnabled(False)
+            self._batch_controller = None
+            successful = result.successful
+            if successful:
+                last = successful[-1]
+                self.preview_view.set_sources(last.source_path, last.output_path)
+            if result.cancelled:
+                title, message = "Đã hủy", f"Đã hoàn tất {len(successful)}/{result.total} video trước khi hủy."
+            else:
+                failed = len(result.items) - len(successful)
+                lines = [f"Đã dịch {len(successful)} video; lỗi {failed} video."]
+                if result.merged_output is not None:
+                    lines.append(f"Video ghép: {result.merged_output}")
+                if result.merge_error:
+                    lines.append(f"Ghép video thất bại: {result.merge_error}")
+                title, message = "Hoàn tất hàng đợi", "\n".join(lines)
+            self.processing_view.job_status.setText(message)
+            QMessageBox.information(self, title, message)
 
         def _show_export(self):
             project = self.session.current_project

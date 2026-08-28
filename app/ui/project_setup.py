@@ -9,7 +9,7 @@ from .qt_compat import PYSIDE6_AVAILABLE, require_pyside6
 if PYSIDE6_AVAILABLE:
     from PySide6.QtWidgets import (
         QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-        QLineEdit, QPushButton, QWidget,
+        QLineEdit, QListWidget, QMessageBox, QPushButton, QWidget,
     )
 
     class ProjectSetupView(QWidget):
@@ -24,11 +24,25 @@ if PYSIDE6_AVAILABLE:
             self.project_name.setPlaceholderText("My translated video")
             layout.addRow("Tên dự án", self.project_name)
 
-            self.source_path = QLineEdit()
-            source_button = QPushButton("Browse…")
+            self.source_list = QListWidget()
+            self.source_list.setMinimumHeight(130)
+            source_button = QPushButton("Thêm video…")
             source_button.clicked.connect(self._browse_source)
-            source_row = QHBoxLayout(); source_row.addWidget(self.source_path, 1); source_row.addWidget(source_button)
-            layout.addRow("Video cần dịch", source_row)
+            remove_button = QPushButton("Xóa")
+            remove_button.clicked.connect(self._remove_source)
+            up_button = QPushButton("Lên")
+            up_button.clicked.connect(lambda: self._move_source(-1))
+            down_button = QPushButton("Xuống")
+            down_button.clicked.connect(lambda: self._move_source(1))
+            source_actions = QHBoxLayout()
+            for button in (source_button, remove_button, up_button, down_button):
+                source_actions.addWidget(button)
+            source_holder = QWidget(); source_holder.setLayout(source_actions)
+            layout.addRow("Video cần dịch", self.source_list)
+            layout.addRow(source_holder)
+
+            self.merge_outputs = QCheckBox("Ghép các video đã dịch thành một video dài")
+            layout.addRow(self.merge_outputs)
 
             self.project_root = QLineEdit()
             self.project_root.setText(str(Path.home() / "Videos"))
@@ -122,11 +136,35 @@ if PYSIDE6_AVAILABLE:
             return not value or self._credentials.save(provider, value)
 
         def _browse_source(self) -> None:
-            path, _ = QFileDialog.getOpenFileName(self, "Select source video", "", "Video (*.mp4 *.mkv *.mov *.avi);;All files (*)")
-            if path:
-                self.source_path.setText(path)
+            paths, _ = QFileDialog.getOpenFileNames(self, "Select source videos", "", "Video (*.mp4 *.mkv *.mov *.avi);;All files (*)")
+            existing = set(self.selected_sources())
+            available = max(0, 10 - self.source_list.count())
+            new_paths = [path for path in paths if path not in existing]
+            for path in new_paths[:available]:
+                self.source_list.addItem(path)
+            if len(new_paths) > available:
+                QMessageBox.information(self, "Giới hạn hàng đợi", "Mỗi lượt xử lý tối đa 10 video.")
+            if self.source_list.count():
+                first = Path(self.source_list.item(0).text())
                 if not self.project_name.text().strip():
-                    self.project_name.setText(Path(path).stem)
+                    self.project_name.setText(first.stem)
+
+        def selected_sources(self) -> list[str]:
+            return [self.source_list.item(index).text() for index in range(self.source_list.count())]
+
+        def _remove_source(self) -> None:
+            row = self.source_list.currentRow()
+            if row >= 0:
+                self.source_list.takeItem(row)
+
+        def _move_source(self, offset: int) -> None:
+            row = self.source_list.currentRow()
+            target = row + offset
+            if row < 0 or not 0 <= target < self.source_list.count():
+                return
+            item = self.source_list.takeItem(row)
+            self.source_list.insertItem(target, item)
+            self.source_list.setCurrentRow(target)
 
         def _browse_project_root(self) -> None:
             path = QFileDialog.getExistingDirectory(self, "Select project folder")
