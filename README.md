@@ -1,4 +1,4 @@
-# SubReplace Studio 0.3.0
+# SubReplace Studio 0.3.1
 
 SubReplace Studio is a local Windows/Linux desktop pipeline for replacing burned-in Chinese dialogue subtitles with Vietnamese or English while preserving watermark pixels and reconstructing the original background.
 
@@ -36,6 +36,8 @@ Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. PaddleOCR a
 - Optionally create one long MP4 in the selected order.
 - Normalize dimensions, FPS, sample aspect ratio, and audio before concatenation.
 - Skip failed videos while allowing successful videos to be merged.
+- Delete temporary per-video project caches after each item in a multi-video batch.
+- Sort numeric filenames naturally, for example `1.mp4`, `2.mp4`, `10.mp4`.
 - Do not create matching SRT sidecars automatically, preventing duplicate subtitles in VLC.
 
 ## Workflow
@@ -84,4 +86,4 @@ python -m pytest -q
 
 API keys can be stored through the operating-system keyring and are not written to project files. Models, project caches, videos, virtual environments, and release artifacts are excluded from Git.
 
-Version 0.3.0 adds the sequential multi-video queue, optional normalized concatenation, duplicate-subtitle prevention, frame-level subtitle recovery, Navier-Stokes reconstruction, and stroke-level watermark protection.
+Version 0.3.1 fixes low-disk batch startup, reports per-video failures, cleans temporary batch caches, and sorts numeric filenames naturally.

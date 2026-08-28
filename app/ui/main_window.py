@@ -144,7 +144,7 @@ if PYSIDE6_AVAILABLE:
                 request = self._request_from_form(source_text, batch_index=index, batch_total=len(sources))
                 prefix = f"{index:02d}_" if len(sources) > 1 else ""
                 output = self._output_dir / f"{prefix}{Path(source_text).stem}_{target}.mp4"
-                items.append(BatchItem(request, output))
+                items.append(BatchItem(request, output, cleanup_project=len(sources) > 1))
             self._last_request = items[0].request if len(items) == 1 else None
             merged = None
             if view.merge_outputs.isChecked() and len(items) > 1:
@@ -276,6 +276,13 @@ if PYSIDE6_AVAILABLE:
                     lines.append(f"Video ghép: {result.merged_output}")
                 if result.merge_error:
                     lines.append(f"Ghép video thất bại: {result.merge_error}")
+                errors = [
+                    f"{item.source_path.name}: {item.error}"
+                    for item in result.items if item.error
+                ]
+                if errors:
+                    lines.append("Lỗi đầu tiên:")
+                    lines.extend(errors[:3])
                 title, message = "Hoàn tất hàng đợi", "\n".join(lines)
             self.processing_view.job_status.setText(message)
             QMessageBox.information(self, title, message)

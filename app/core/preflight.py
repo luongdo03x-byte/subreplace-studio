@@ -95,7 +95,7 @@ class PreflightService:
         checks.append(
             PreflightCheck(
                 "free_disk",
-                CheckStatus.PASS if free >= 5 * 1024**3 else CheckStatus.FAILED,
+                CheckStatus.PASS if free >= 2 * 1024**3 else CheckStatus.FAILED,
                 f"{free / 1024**3:.1f} GiB free",
             )
         )

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "subreplace-studio"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local hard-subtitle replacement studio"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"

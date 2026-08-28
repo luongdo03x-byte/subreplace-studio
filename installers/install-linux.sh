@@ -3,9 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WHEEL="$SCRIPT_DIR/subreplace_studio-0.3.0-py3-none-any.whl"
+WHEEL="$SCRIPT_DIR/subreplace_studio-0.3.1-py3-none-any.whl"
 if [[ ! -f "$WHEEL" ]]; then
-  WHEEL="$ROOT_DIR/dist/subreplace_studio-0.3.0-py3-none-any.whl"
+  WHEEL="$ROOT_DIR/dist/subreplace_studio-0.3.1-py3-none-any.whl"
 fi
 INSTALL_DIR="${SUBREPLACE_INSTALL_DIR:-$HOME/.local/share/subreplace-studio/runtime}"
 BIN_DIR="${SUBREPLACE_BIN_DIR:-$HOME/.local/bin}"
@@ -56,7 +56,7 @@ Terminal=false
 Categories=AudioVideo;Utility;
 EOF
 
-echo "Installed SubReplace Studio 0.3.0"
+echo "Installed SubReplace Studio 0.3.1"
 echo "Launch: $BIN_DIR/subreplace-studio"
 echo "Application menu shortcut: $DESKTOP_DIR/subreplace-studio.desktop"
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then

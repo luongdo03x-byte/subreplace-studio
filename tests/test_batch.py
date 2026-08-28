@@ -12,6 +12,7 @@ from app.application.batch import BatchController, BatchItem
 from app.application.view_model import ProjectStartRequest
 from app.core.jobs.models import JobStatus
 from app.core.media.ffmpeg import FFmpegMedia, MediaError
+from app.ui.project_setup import _natural_video_key
 
 
 class _Worker:
@@ -93,6 +94,13 @@ def test_batch_waits_for_each_video_and_preserves_order(tmp_path):
     ]
 
 
+def test_numeric_video_names_sort_naturally():
+    paths = ["/videos/10.mp4", "/videos/2.mp4", "/videos/1.mp4"]
+    assert sorted(paths, key=_natural_video_key) == [
+        "/videos/1.mp4", "/videos/2.mp4", "/videos/10.mp4",
+    ]
+
+
 def test_failed_video_is_skipped_when_merging(tmp_path):
     view_model = _ViewModel(tmp_path, [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.COMPLETED])
     media = _Media()
@@ -107,6 +115,16 @@ def test_failed_video_is_skipped_when_merging(tmp_path):
         tmp_path / "output" / "translated-2.mp4",
     ]
     assert result.merged_output == merged
+
+
+def test_batch_cleanup_removes_project_cache_after_publish(tmp_path):
+    view_model = _ViewModel(tmp_path, [JobStatus.COMPLETED])
+    original = _item(tmp_path, 0)
+    item = BatchItem(original.request, original.output_path, cleanup_project=True)
+    result = BatchController(view_model).run([item])
+    assert len(result.successful) == 1
+    assert result.successful[0].output_path.is_file()
+    assert not Path(original.request.project_root).exists()
 
 
 def test_cancel_before_run_does_not_start_first_video(tmp_path):

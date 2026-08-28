@@ -9,13 +9,14 @@ from typing import Callable, Sequence
 from app.core.jobs.models import JobStatus
 from app.core.media.ffmpeg import FFmpegMedia
 
-from .view_model import ProjectStartRequest, StudioViewModel
+from .view_model import PreflightFailedError, ProjectStartRequest, StudioViewModel
 
 
 @dataclass(frozen=True, slots=True)
 class BatchItem:
     request: ProjectStartRequest
     output_path: Path
+    cleanup_project: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +79,16 @@ class BatchController:
         destination.with_suffix(".srt").unlink(missing_ok=True)
         return destination
 
+    @staticmethod
+    def _error_message(exc: Exception) -> str:
+        if isinstance(exc, PreflightFailedError):
+            failed = [
+                f"{check.name}: {check.message}"
+                for check in exc.report.checks if check.status.value == "failed"
+            ]
+            return "; ".join(failed) or str(exc)
+        return str(exc)
+
     def run(
         self,
         items: Sequence[BatchItem],
@@ -119,11 +130,17 @@ class BatchController:
                 results.append(result)
                 self._notify(on_item, index, total, source, "completed", str(published))
             except Exception as exc:
-                results.append(BatchItemResult(source.resolve(), None, project.root if project else None, str(exc)))
-                self._notify(on_item, index, total, source, "failed", str(exc))
+                message = self._error_message(exc)
+                results.append(BatchItemResult(source.resolve(), None, project.root if project else None, message))
+                self._notify(on_item, index, total, source, "failed", message)
             finally:
                 with self._lock:
                     self._active_handle = None
+                if item.cleanup_project and project is not None and project.root.is_dir():
+                    try:
+                        shutil.rmtree(project.root)
+                    except OSError as exc:
+                        self._notify(on_item, index, total, source, "warning", f"Không thể xóa cache: {exc}")
 
         merged = None
         merge_error = None

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from app.core.credentials import CredentialStore
 
 from .qt_compat import PYSIDE6_AVAILABLE, require_pyside6
+
+
+def _natural_video_key(path: str) -> tuple:
+    parts = re.split(r"(\d+)", Path(path).name.casefold())
+    return tuple((0, int(part)) if part.isdigit() else (1, part) for part in parts)
 
 if PYSIDE6_AVAILABLE:
     from PySide6.QtWidgets import (
@@ -137,12 +143,11 @@ if PYSIDE6_AVAILABLE:
 
         def _browse_source(self) -> None:
             paths, _ = QFileDialog.getOpenFileNames(self, "Select source videos", "", "Video (*.mp4 *.mkv *.mov *.avi);;All files (*)")
-            existing = set(self.selected_sources())
-            available = max(0, 10 - self.source_list.count())
-            new_paths = [path for path in paths if path not in existing]
-            for path in new_paths[:available]:
-                self.source_list.addItem(path)
-            if len(new_paths) > available:
+            combined = list(dict.fromkeys(self.selected_sources() + paths))
+            combined.sort(key=_natural_video_key)
+            self.source_list.clear()
+            self.source_list.addItems(combined[:10])
+            if len(combined) > 10:
                 QMessageBox.information(self, "Giới hạn hàng đợi", "Mỗi lượt xử lý tối đa 10 video.")
             if self.source_list.count():
                 first = Path(self.source_list.item(0).text())
