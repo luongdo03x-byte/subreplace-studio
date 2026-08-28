@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -125,6 +126,24 @@ def test_batch_cleanup_removes_project_cache_after_publish(tmp_path):
     assert len(result.successful) == 1
     assert result.successful[0].output_path.is_file()
     assert not Path(original.request.project_root).exists()
+
+
+def test_retry_reuses_successful_outputs_and_only_runs_failed_video(tmp_path):
+    items = [replace(_item(tmp_path, i), cleanup_project=True) for i in range(3)]
+    first_view_model = _ViewModel(tmp_path, [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.COMPLETED])
+    first = BatchController(first_view_model).run(items)
+    completed = {item.source_path.resolve() for item in first.successful}
+    retry_items = [
+        replace(item, reuse_output=Path(item.request.source_path).resolve() in completed)
+        for item in items
+    ]
+
+    retry_view_model = _ViewModel(tmp_path, [JobStatus.COMPLETED])
+    retried = BatchController(retry_view_model).run(retry_items)
+
+    assert retry_view_model.log == ["start:source-1", "join:source-1"]
+    assert len(retried.successful) == 3
+    assert [item.output_path for item in retried.successful] == [item.output_path for item in items]
 
 
 def test_cancel_before_run_does_not_start_first_video(tmp_path):

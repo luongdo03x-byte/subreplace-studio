@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import threading
 
@@ -53,6 +54,9 @@ if PYSIDE6_AVAILABLE:
             self._output_stem = "video"
             self._batch_controller: BatchController | None = None
             self._batch_thread: threading.Thread | None = None
+            self._batch_items: tuple[BatchItem, ...] = ()
+            self._batch_merged: Path | None = None
+            self._last_batch_result: BatchResult | None = None
 
             shell = QWidget(); root = QHBoxLayout(shell); sidebar = QVBoxLayout()
             brand = QLabel("SUBREPLACE STUDIO"); brand.setObjectName("brand"); sidebar.addWidget(brand)
@@ -152,8 +156,11 @@ if PYSIDE6_AVAILABLE:
                 safe = "".join(char if char.isalnum() or char in "-_" else "-" for char in name).strip("-") or "merged"
                 merged = self._output_dir / f"{safe}_{target}_merged.mp4"
             self._batch_controller = BatchController(self.view_model)
+            self._batch_items = tuple(items)
+            self._batch_merged = merged
+            self._last_batch_result = None
             self._batch_thread = threading.Thread(
-                target=self._run_batch, args=(tuple(items), merged), name="SubReplaceBatchController", daemon=True
+                target=self._run_batch, args=(self._batch_items, merged), name="SubReplaceBatchController", daemon=True
             )
             self.processing_view.cancel_button.setEnabled(True)
             self.processing_view.retry_button.setEnabled(False)
@@ -173,7 +180,27 @@ if PYSIDE6_AVAILABLE:
 
         def _retry_processing(self) -> None:
             if self._batch_thread is not None and self._batch_thread.is_alive():
-                QMessageBox.information(self, "Hàng đợi", "Video lỗi sẽ được bỏ qua; hàng đợi đang tiếp tục.")
+                QMessageBox.information(self, "Hàng đợi", "Hàng đợi hiện tại vẫn đang chạy.")
+                return
+            if len(self._batch_items) > 1 and self._last_batch_result is not None:
+                completed = {item.source_path.resolve() for item in self._last_batch_result.successful}
+                retry_items = tuple(
+                    replace(item, reuse_output=Path(item.request.source_path).resolve() in completed)
+                    for item in self._batch_items
+                )
+                self._batch_controller = BatchController(self.view_model)
+                self._batch_thread = threading.Thread(
+                    target=self._run_batch,
+                    args=(retry_items, self._batch_merged),
+                    name="SubReplaceBatchRetryController",
+                    daemon=True,
+                )
+                self.processing_view.retry_button.setEnabled(False)
+                self.processing_view.cancel_button.setEnabled(True)
+                self.processing_view.job_status.setText(
+                    f"Retry: giữ {len(completed)} video đã xong, chạy phần còn lại."
+                )
+                self._batch_thread.start()
                 return
             request = self._last_request
             project = self.session.current_project
@@ -263,12 +290,17 @@ if PYSIDE6_AVAILABLE:
         def _on_batch_finished(self, result: BatchResult) -> None:
             self.processing_view.cancel_button.setEnabled(False)
             self._batch_controller = None
+            self._last_batch_result = result
             successful = result.successful
             if successful:
                 last = successful[-1]
                 self.preview_view.set_sources(last.source_path, last.output_path)
             if result.cancelled:
-                title, message = "Đã hủy", f"Đã hoàn tất {len(successful)}/{result.total} video trước khi hủy."
+                title = "Đã dừng"
+                message = (
+                    f"Đã giữ {len(successful)}/{result.total} video hoàn tất. "
+                    "Nhấn Retry để chạy tiếp video đang dở và chưa xử lý."
+                )
             else:
                 failed = len(result.items) - len(successful)
                 lines = [f"Đã dịch {len(successful)} video; lỗi {failed} video."]
@@ -284,6 +316,7 @@ if PYSIDE6_AVAILABLE:
                     lines.append("Lỗi đầu tiên:")
                     lines.extend(errors[:3])
                 title, message = "Hoàn tất hàng đợi", "\n".join(lines)
+            self.processing_view.retry_button.setEnabled(result.cancelled or len(successful) < result.total)
             self.processing_view.job_status.setText(message)
             QMessageBox.information(self, title, message)
 

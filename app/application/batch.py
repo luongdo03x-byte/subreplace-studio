@@ -17,6 +17,7 @@ class BatchItem:
     request: ProjectStartRequest
     output_path: Path
     cleanup_project: bool = False
+    reuse_output: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +106,10 @@ class BatchController:
             source = Path(item.request.source_path)
             if self._cancelled.is_set():
                 break
+            if item.reuse_output and item.output_path.is_file() and item.output_path.stat().st_size > 0:
+                results.append(BatchItemResult(source.resolve(), item.output_path, None))
+                self._notify(on_item, index, total, source, "retained", str(item.output_path))
+                continue
             self._notify(on_item, index, total, source, "started", "")
             project = None
             try:
