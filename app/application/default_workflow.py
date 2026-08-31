@@ -56,25 +56,35 @@ def build_full_commands(
     translation_config: dict[str, object],
     temporal_config: dict[str, object] | None = None,
     has_audio: bool = True,
+    erase_enabled: bool = False,
+    dub_config: dict[str, object] | None = None,
 ) -> tuple[WorkerCommand, ...]:
     root = project.root.resolve()
     core = list(build_core_commands(project, has_audio=has_audio))
     media = root / "cache" / "frames" / "media.json"
     classified = root / "cache" / "detection" / "classified.json"
+    audio = root / "cache" / "audio" / "source.wav"
     clean = root / "cache" / "clean" / "clean.mkv"
     erase_report = root / "cache" / "clean" / "erase-report.json"
     translated = root / "cache" / "translation" / f"translated_{project.target_language}.json"
+    dub_track = root / "cache" / "dub" / f"dub_{project.target_language}.wav"
+    dub_report = root / "cache" / "dub" / "dub-report.json"
     final_video = root / "exports" / f"final_{project.target_language}.mp4"
+    render_report = root / "exports" / "render-report.json"
     srt = root / "subtitles" / f"target_{project.target_language}.srt"
-    erase_config: dict[str, object] = {
-        "video_path": str(project.source_path),
-        "classified_path": str(classified),
-        "output_path": str(clean),
-        "report_path": str(erase_report),
-        "chunk_size": 48,
-    }
-    if temporal_config:
-        erase_config.update(temporal_config)
+
+    if erase_enabled:
+        erase_config: dict[str, object] = {
+            "video_path": str(project.source_path),
+            "classified_path": str(classified),
+            "output_path": str(clean),
+            "report_path": str(erase_report),
+            "chunk_size": 48,
+        }
+        if temporal_config:
+            erase_config.update(temporal_config)
+        core.append(WorkerCommand("pending", "erase_video", str(root), erase_config))
+
     translate_config: dict[str, object] = {
         "classified_path": str(classified),
         "media_path": str(media),
@@ -82,15 +92,35 @@ def build_full_commands(
         "target_language": project.target_language,
         **translation_config,
     }
-    core.extend([
-        WorkerCommand("pending", "erase_video", str(root), erase_config),
-        WorkerCommand("pending", "translate_events", str(root), translate_config),
-        WorkerCommand("pending", "render_final", str(root), {
-            "clean_video_path": str(clean),
+    core.append(WorkerCommand("pending", "translate_events", str(root), translate_config))
+
+    # Dubbing needs the extracted source audio to read speaker pitch, so a
+    # silent source turns it off rather than failing the run.
+    dubbing = bool(dub_config) and has_audio
+    if dubbing:
+        core.append(WorkerCommand("pending", "synthesize_speech", str(root), {
             "translated_path": str(translated),
-            "output_path": str(final_video),
-            "srt_path": str(srt),
-            "target_language": project.target_language,
-        }),
-    ])
+            "source_audio_path": str(audio),
+            "media_path": str(media),
+            "output_path": str(dub_track),
+            "report_path": str(dub_report),
+            **dict(dub_config or {}),
+        }))
+
+    render_config: dict[str, object] = {
+        # The eraser is optional now, so the render reads whichever video is
+        # current: the reconstructed plate, or the untouched source.
+        "video_path": str(clean if erase_enabled else project.source_path),
+        "translated_path": str(translated),
+        "output_path": str(final_video),
+        "srt_path": str(srt),
+        "report_path": str(render_report),
+        "target_language": project.target_language,
+        # Keeping the Chinese text means the translation must sit below it.
+        "subtitle_placement": "on_anchor" if erase_enabled else "below_anchor",
+    }
+    if dubbing:
+        render_config["dub_audio_path"] = str(dub_track)
+        render_config["duck_ratio"] = int(dict(dub_config or {}).get("duck_ratio", 12))
+    core.append(WorkerCommand("pending", "render_final", str(root), render_config))
     return tuple(core)
