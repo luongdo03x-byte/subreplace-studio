@@ -9,6 +9,7 @@ from app.core.preflight import CheckStatus, PreflightCheck, PreflightReport, Pre
 from app.core.media.ffmpeg import FFmpegMedia
 from app.providers.inpainting.propainter import ProPainterProvider
 from app.providers.inpainting.e2fgvi import E2FGVIProvider
+from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE
 import importlib.util
 
 
@@ -33,6 +34,13 @@ class ProjectStartRequest:
     temporal_repo_dir: str = ""
     temporal_checkpoint: str = ""
     fp16: bool = True
+    erase_subtitles: bool = False
+    dub_enabled: bool = True
+    dub_voice_female: str = VOICE_FEMALE
+    dub_voice_male: str = VOICE_MALE
+    dub_default_gender: str = "female"
+    dub_rate: str = "+0%"
+    duck_ratio: int = 12
 
 
 class StudioViewModel:
@@ -85,6 +93,8 @@ class StudioViewModel:
             required.append(("openai", "OpenAI SDK is required for the selected translation provider"))
         elif provider == "gemini":
             required.append(("google.genai", "google-genai is required for the selected translation provider"))
+        if request.dub_enabled:
+            required.append(("edge_tts", "edge-tts is required for Vietnamese dubbing"))
         checks = []
         for module, message in required:
             available = bool(self.module_probe(module))
@@ -138,6 +148,25 @@ class StudioViewModel:
             }
         raise ValueError("temporal provider must be one of: classical, propainter, e2fgvi")
 
+    def _dub_config(self, request: ProjectStartRequest) -> dict[str, object] | None:
+        if not request.dub_enabled:
+            return None
+        female = request.dub_voice_female.strip()
+        male = request.dub_voice_male.strip()
+        if not female or not male:
+            raise ValueError("dubbing requires both a female and a male voice id")
+        if request.dub_default_gender not in {"female", "male"}:
+            raise ValueError("dub_default_gender must be 'female' or 'male'")
+        if request.duck_ratio <= 0:
+            raise ValueError("duck_ratio must be positive")
+        return {
+            "voice_female": female,
+            "voice_male": male,
+            "default_gender": request.dub_default_gender,
+            "rate": request.dub_rate.strip() or "+0%",
+            "duck_ratio": int(request.duck_ratio),
+        }
+
     def start(self, request: ProjectStartRequest, *, on_progress=None):
         source = Path(request.source_path).resolve()
         root = Path(request.project_root).resolve()
@@ -150,8 +179,12 @@ class StudioViewModel:
         if report.has_failures:
             raise PreflightFailedError(report)
         translation_config = self._translation_config(request)
-        temporal_config = self._temporal_config(request)
-        self.temporal_validator(temporal_config)
+        # Validating a temporal plugin the user is not going to run would block
+        # the common no-erase path for no reason.
+        temporal_config = self._temporal_config(request) if request.erase_subtitles else None
+        if temporal_config is not None:
+            self.temporal_validator(temporal_config)
+        dub_config = self._dub_config(request)
         project = self.session.create_project(
             source_path=source,
             project_root=root,
@@ -164,5 +197,7 @@ class StudioViewModel:
             temporal_config=temporal_config,
             on_progress=on_progress,
             has_audio=has_audio,
+            erase_enabled=request.erase_subtitles,
+            dub_config=dub_config,
         )
         return handle, report

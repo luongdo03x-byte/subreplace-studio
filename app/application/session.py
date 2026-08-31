@@ -51,12 +51,16 @@ class StudioSession:
         temporal_config: dict[str, object] | None = None,
         on_progress: Callable | None = None,
         has_audio: bool = True,
+        erase_enabled: bool = False,
+        dub_config: dict[str, object] | None = None,
     ):
         commands = build_full_commands(
             project,
             translation_config=translation_config,
             temporal_config=temporal_config,
             has_audio=has_audio,
+            erase_enabled=erase_enabled,
+            dub_config=dub_config,
         )
         handle = self.workflow.start(project, commands, on_progress=on_progress)
         self.current_project = project
@@ -72,12 +76,16 @@ class StudioSession:
         temporal_config: dict[str, object] | None = None,
         on_progress: Callable | None = None,
         has_audio: bool = True,
+        erase_enabled: bool = False,
+        dub_config: dict[str, object] | None = None,
     ):
         commands = build_full_commands(
             project,
             translation_config=translation_config,
             temporal_config=temporal_config,
             has_audio=has_audio,
+            erase_enabled=erase_enabled,
+            dub_config=dub_config,
         )
         handle = self.workflow.retry(project, job_id, commands, on_progress=on_progress)
         self.current_project = project
