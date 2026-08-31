@@ -86,3 +86,21 @@ def test_render_stage_writes_a_placement_report(tmp_path):
     assert report["placement"] == "below_anchor"
     assert report["clamped"] is True
     assert events[-1].data["clamped"] is True
+
+
+def test_empty_dub_track_falls_back_to_the_plain_render(tmp_path):
+    """An interrupted synthesis write must not break the render."""
+    from app.core.rendering.renderer import SubtitleRenderer
+
+    empty = tmp_path / "dub.wav"
+    empty.write_bytes(b"")
+    assert empty.is_file() and empty.stat().st_size == 0
+
+    renderer = SubtitleRenderer()
+    # The gate must reject a zero-byte file the same way it rejects a missing one.
+    assert renderer._dub_is_usable(empty) is False
+    assert renderer._dub_is_usable(tmp_path / "missing.wav") is False
+
+    real = tmp_path / "real.wav"
+    real.write_bytes(b"\x00" * 64)
+    assert renderer._dub_is_usable(real) is True

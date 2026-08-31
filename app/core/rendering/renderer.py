@@ -77,7 +77,10 @@ class SubtitleRenderer:
         if ffmpeg is None:
             raise RenderError(f"required renderer binary is not installed: {self.ffmpeg}")
         dub = Path(dub_audio_path) if dub_audio_path else None
-        dubbed = dub is not None and dub.is_file() and metadata.has_audio
+        # A truncated or zero-byte track (an interrupted synthesis write, picked
+        # up by a retry) must fall back to the subtitle-only render rather than
+        # feed an undecodable stream into the filtergraph.
+        dubbed = self._dub_is_usable(dub) and metadata.has_audio
         with tempfile.TemporaryDirectory(prefix="subreplace-render-") as tmp:
             ass_path = Path(tmp) / "target.ass"
             placement_report = write_ass(
@@ -114,3 +117,10 @@ class SubtitleRenderer:
     def _escape_filter_path(path: Path) -> str:
         # ffmpeg filtergraph escaping, including Windows drive separator.
         return str(path.resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+
+    @staticmethod
+    def _dub_is_usable(path: Path | None) -> bool:
+        # A missing or zero-byte file (e.g. an interrupted synthesis write
+        # picked up by a retry) is undecodable and must not be treated as a
+        # usable dub track.
+        return path is not None and path.is_file() and path.stat().st_size > 0
