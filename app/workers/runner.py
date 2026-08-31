@@ -37,6 +37,7 @@ from app.core.dubbing.voice import choose_gender, estimate_f0, read_slice
 from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE, EdgeTTSProvider
 from app.models.subtitle import SubtitleSegment
 from app.models.enums import TextType, ReviewStatus
+from app.core.rendering.placement import SubtitlePlacement
 from app.core.rendering.renderer import SubtitleRenderer
 from app.core.rendering.style import SubtitleStyle
 from app.core.ocr.events import TextEventScanner, select_representative_sample, fuse_event_ink, merge_fragmented_events
@@ -326,10 +327,14 @@ def _run_synthesize_speech(command: WorkerCommand, dependencies: dict[str, Any])
 
 def _run_render_final(command: WorkerCommand, dependencies: dict[str, Any]) -> tuple[WorkerEvent, ...]:
     config = command.config
-    clean_video = _project_path(command, "clean_video_path")
+    video_path = _project_path(command, "video_path")
     translated_path = _project_path(command, "translated_path")
     output_path = _project_path(command, "output_path")
     srt_path = _project_path(command, "srt_path")
+    placement = SubtitlePlacement(str(config.get("subtitle_placement") or "below_anchor"))
+    dub_audio_path = _project_path(command, "dub_audio_path") if config.get("dub_audio_path") else None
+    duck_ratio = int(config.get("duck_ratio", 12))
+    report_path = _project_path(command, "report_path") if config.get("report_path") else None
     target_language = str(config.get("target_language") or "vi")
     raw = json.loads(translated_path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
@@ -350,12 +355,18 @@ def _run_render_final(command: WorkerCommand, dependencies: dict[str, Any]) -> t
     style = SubtitleStyle(**{key: value for key, value in style_config.items() if key in allowed})
     renderer = dependencies.get("renderer") or SubtitleRenderer()
     result = renderer.export(
-        clean_video=clean_video, segments=segments, style=style,
+        video=video_path, segments=segments, style=style,
         output_path=output_path, srt_path=srt_path,
+        placement=placement, dub_audio_path=dub_audio_path, duck_ratio=duck_ratio,
     )
+    report = dict(result.placement_report)
+    if report_path is not None:
+        _write_json(report_path, report)
     return (
         _event(command, WorkerEventType.STARTED, 0.0, "Final render started"),
-        _event(command, WorkerEventType.COMPLETED, 1.0, "Final render completed", {"output_path": str(result.output_path), "srt_path": str(result.srt_path)}),
+        _event(command, WorkerEventType.COMPLETED, 1.0, "Final render completed", {
+            "output_path": str(result.output_path), "srt_path": str(result.srt_path), **report,
+        }),
     )
 
 def _fill_bbox(mask: np.ndarray, bbox: tuple[int, int, int, int]) -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import shutil
 import subprocess
@@ -19,10 +19,30 @@ class RenderError(RuntimeError):
     pass
 
 
+def build_filter_complex(*, ass_path: str, dubbed: bool, duck_ratio: int) -> str:
+    """Filtergraph that burns subtitles and, when dubbing, ducks the original audio.
+
+    Returns "" when there is no dub track: that path keeps the historical
+    -vf/-c:a copy command, so a subtitle-only render never re-encodes audio.
+    """
+    if not dubbed:
+        return ""
+    if duck_ratio <= 0:
+        raise ValueError("duck_ratio must be positive")
+    return (
+        f"[0:v]ass={ass_path}[v];"
+        "[0:a]aresample=48000[orig];"
+        "[1:a]aresample=48000[dub];"
+        f"[orig][dub]sidechaincompress=threshold=0.02:ratio={duck_ratio}:attack=20:release=400[ducked];"
+        "[ducked][dub]amix=inputs=2:duration=first:normalize=0[aout]"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RenderResult:
     output_path: Path
     srt_path: Path
+    placement_report: dict[str, object] = field(default_factory=dict)
 
 
 class SubtitleRenderer:
@@ -33,19 +53,22 @@ class SubtitleRenderer:
     def export(
         self,
         *,
-        clean_video: str | Path,
+        video: str | Path,
         segments: Sequence[SubtitleSegment],
         style: SubtitleStyle,
         output_path: str | Path,
         srt_path: str | Path,
+        placement: SubtitlePlacement,
+        dub_audio_path: str | Path | None = None,
+        duck_ratio: int = 12,
     ) -> RenderResult:
-        clean = Path(clean_video)
+        source = Path(video)
         output = Path(output_path)
         srt = Path(srt_path)
-        if not clean.is_file():
-            raise RenderError(f"clean video does not exist: {clean}")
+        if not source.is_file():
+            raise RenderError(f"render source video does not exist: {source}")
         try:
-            metadata = self.media.probe(clean)
+            metadata = self.media.probe(source)
         except MediaError as exc:
             raise RenderError(str(exc)) from exc
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -53,39 +76,39 @@ class SubtitleRenderer:
         ffmpeg = shutil.which(self.ffmpeg)
         if ffmpeg is None:
             raise RenderError(f"required renderer binary is not installed: {self.ffmpeg}")
+        dub = Path(dub_audio_path) if dub_audio_path else None
+        dubbed = dub is not None and dub.is_file() and metadata.has_audio
         with tempfile.TemporaryDirectory(prefix="subreplace-render-") as tmp:
             ass_path = Path(tmp) / "target.ass"
-            write_ass(ass_path, segments, style, frame_size=(metadata.width, metadata.height),
-                      placement=SubtitlePlacement.ON_ANCHOR)
-            command = [
-                ffmpeg,
-                "-y",
-                "-i",
-                str(clean),
-                "-vf",
-                f"ass={self._escape_filter_path(ass_path)}",
-                "-map",
-                "0:v:0",
-                "-map",
-                "0:a?",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                "18",
-                "-c:a",
-                "copy",
-                "-movflags",
-                "+faststart",
-                str(output),
-            ]
+            placement_report = write_ass(
+                ass_path, segments, style,
+                frame_size=(metadata.width, metadata.height), placement=placement,
+            )
+            escaped = self._escape_filter_path(ass_path)
+            command = [ffmpeg, "-y", "-i", str(source)]
+            if dubbed:
+                command += ["-i", str(dub)]
+                command += [
+                    "-filter_complex",
+                    build_filter_complex(ass_path=escaped, dubbed=True, duck_ratio=duck_ratio),
+                    "-map", "[v]", "-map", "[aout]",
+                    "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "192k",
+                ]
+            else:
+                command += [
+                    "-vf", f"ass={escaped}",
+                    "-map", "0:v:0", "-map", "0:a?",
+                    "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+                    "-c:a", "copy",
+                ]
+            command += ["-movflags", "+faststart", str(output)]
             proc = subprocess.run(command, text=True, capture_output=True, check=False)
             if proc.returncode != 0:
                 raise RenderError(f"subtitle render failed: {proc.stderr[-3000:]}")
         if not output.is_file() or output.stat().st_size == 0:
             raise RenderError("renderer did not produce a non-empty output video")
-        return RenderResult(output_path=output, srt_path=srt)
+        return RenderResult(output_path=output, srt_path=srt, placement_report=placement_report)
 
     @staticmethod
     def _escape_filter_path(path: Path) -> str:
