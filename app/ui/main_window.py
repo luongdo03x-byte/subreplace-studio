@@ -128,6 +128,13 @@ if PYSIDE6_AVAILABLE:
                 temporal_repo_dir=repo_dir,
                 temporal_checkpoint=view.temporal_checkpoint.text().strip(),
                 fp16=view.fp16.isChecked(),
+                erase_subtitles=view.erase_subtitles.isChecked(),
+                dub_enabled=view.dub_enabled.isChecked(),
+                dub_voice_female=str(view.dub_voice_female.currentData()),
+                dub_voice_male=str(view.dub_voice_male.currentData()),
+                dub_default_gender=str(view.dub_default_gender.currentData()),
+                dub_rate=view.dub_rate.text().strip() or "+0%",
+                duck_ratio=int(view.duck_level.currentData()),
             )
 
         def _start_processing(self) -> None:

@@ -4,7 +4,8 @@ from .qt_compat import PYSIDE6_AVAILABLE, require_pyside6
 
 STAGES = (
     "analyze_media", "detect_text_events", "ocr_events", "extract_audio", "asr",
-    "classify_text_events", "erase_video", "translate_events", "render_final",
+    "classify_text_events", "recover_missing_subtitles", "erase_video",
+    "translate_events", "synthesize_speech", "render_final",
 )
 
 if PYSIDE6_AVAILABLE:

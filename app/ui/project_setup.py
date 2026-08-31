@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from app.core.credentials import CredentialStore
+from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE
 
 from .qt_compat import PYSIDE6_AVAILABLE, require_pyside6
 
@@ -11,6 +12,8 @@ from .qt_compat import PYSIDE6_AVAILABLE, require_pyside6
 def _natural_video_key(path: str) -> tuple:
     parts = re.split(r"(\d+)", Path(path).name.casefold())
     return tuple((0, int(part)) if part.isdigit() else (1, part) for part in parts)
+
+DUCK_LEVELS = (("Nhẹ", 6), ("Vừa", 12), ("Mạnh", 20))
 
 if PYSIDE6_AVAILABLE:
     from PySide6.QtWidgets import (
@@ -90,6 +93,38 @@ if PYSIDE6_AVAILABLE:
             self.local_command.setPlaceholderText("translator --json")
             layout.addRow("Local command", self.local_command)
 
+            self.dub_enabled = QCheckBox("Lồng tiếng Việt")
+            self.dub_enabled.setChecked(True)
+            layout.addRow(self.dub_enabled)
+
+            self.dub_voice_female = QComboBox()
+            self.dub_voice_female.addItem("Hoài My (nữ)", VOICE_FEMALE)
+            layout.addRow("Giọng nữ", self.dub_voice_female)
+
+            self.dub_voice_male = QComboBox()
+            self.dub_voice_male.addItem("Nam Minh (nam)", VOICE_MALE)
+            layout.addRow("Giọng nam", self.dub_voice_male)
+
+            self.dub_default_gender = QComboBox()
+            self.dub_default_gender.addItem("Giọng nữ", "female")
+            self.dub_default_gender.addItem("Giọng nam", "male")
+            layout.addRow("Giọng khi không xác định được", self.dub_default_gender)
+
+            self.dub_rate = QLineEdit()
+            self.dub_rate.setText("+0%")
+            layout.addRow("Tốc độ đọc cơ bản", self.dub_rate)
+
+            self.duck_level = QComboBox()
+            for label, ratio in DUCK_LEVELS:
+                self.duck_level.addItem(label, ratio)
+            self.duck_level.setCurrentIndex(1)
+            layout.addRow("Giảm tiếng gốc", self.duck_level)
+
+            self.erase_subtitles = QCheckBox("Xoá phụ đề gốc trên hình")
+            self.erase_subtitles.setChecked(False)
+            self.erase_subtitles.toggled.connect(self._set_erase_visible)
+            layout.addRow(self.erase_subtitles)
+
             self.temporal_provider = QComboBox()
             for label, value in (("Classical only", "classical"), ("ProPainter", "propainter"), ("E2FGVI", "e2fgvi")):
                 self.temporal_provider.addItem(label, value)
@@ -121,13 +156,17 @@ if PYSIDE6_AVAILABLE:
             layout.addRow(self.process_button)
             self._layout = layout
             self._set_advanced_visible(False)
+            self._set_erase_visible(False)
 
         def _set_advanced_visible(self, visible: bool) -> None:
-            for widget in (
-                self.project_name, self.translation_model, self.endpoint, self.local_command,
-                self.temporal_provider, self._repo_row, self._checkpoint_row, self.fp16,
-            ):
+            for widget in (self.project_name, self.translation_model, self.endpoint, self.local_command):
                 self._layout.setRowVisible(widget, visible)
+            self._set_erase_visible(self.erase_subtitles.isChecked())
+
+        def _set_erase_visible(self, visible: bool) -> None:
+            # The temporal plugin fields only mean anything while erasing.
+            for widget in (self.temporal_provider, self._repo_row, self._checkpoint_row, self.fp16):
+                self._layout.setRowVisible(widget, visible and self.advanced.isChecked())
 
         def _load_api_key(self) -> None:
             provider = str(self.translation_provider.currentData())
