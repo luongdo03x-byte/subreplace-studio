@@ -1478,7 +1478,7 @@ git commit -m "feat(dubbing): add synthesize_speech worker stage"
 - Produces:
   - `SubtitlePlacement(str, Enum)` với `ON_ANCHOR = "on_anchor"`, `BELOW_ANCHOR = "below_anchor"`
   - `Placement` dataclass: `x: int`, `y: int`, `font_size: int`, `alignment: int`, `clamped: bool`
-  - `place_below_anchor(anchor, *, line_count, font_size, frame_size, gap_ratio=0.45, line_height=1.2, min_font_scale=0.78, bottom_safe_ratio=0.02) -> Placement`
+  - `place_below_anchor(anchor, *, line_count, font_size, frame_size, base_font_size=None, gap_ratio=0.45, line_height=1.2, min_font_scale=0.78, bottom_safe_ratio=0.02) -> Placement`
   - Hằng: `ALIGN_TOP_CENTER = 8`, `ALIGN_BOTTOM_CENTER = 2`
 
 - [ ] **Step 1: Viết test hỏng**
@@ -1523,10 +1523,25 @@ def test_one_line_and_two_line_cues_start_at_the_same_height():
 
 def test_font_shrinks_when_two_lines_do_not_fit_below():
     roomy = place_below_anchor((360, 700), line_count=2, font_size=42, frame_size=FRAME)
-    tight = place_below_anchor((360, 1130), line_count=2, font_size=42, frame_size=FRAME)
+    tight = place_below_anchor((360, 1150), line_count=2, font_size=42, frame_size=FRAME)
     assert roomy.font_size == 42
-    assert tight.font_size < 42
+    assert tight.font_size == 35
     assert tight.font_size >= round(42 * 0.78)
+
+
+def test_gap_comes_from_the_base_size_so_the_top_never_moves():
+    """Font size varies per cue; the gap must not, or tops drift between cues."""
+    big = place_below_anchor((360, 800), line_count=1, font_size=42,
+                             base_font_size=42, frame_size=FRAME)
+    small = place_below_anchor((360, 800), line_count=2, font_size=33,
+                               base_font_size=42, frame_size=FRAME)
+    assert big.y == small.y == 800 + round(42 * 0.45)
+
+
+def test_base_font_size_defaults_to_the_cue_font_size():
+    assert (place_below_anchor((360, 800), line_count=1, font_size=42, frame_size=FRAME).y
+            == place_below_anchor((360, 800), line_count=1, font_size=42,
+                                  base_font_size=42, frame_size=FRAME).y)
 
 
 def test_clamped_when_even_the_smallest_font_does_not_fit():
@@ -1605,6 +1620,7 @@ def place_below_anchor(
     line_count: int,
     font_size: int,
     frame_size: tuple[int, int],
+    base_font_size: int | None = None,
     gap_ratio: float = 0.45,
     line_height: float = 1.2,
     min_font_scale: float = 0.78,
@@ -1615,6 +1631,11 @@ def place_below_anchor(
     Using \\an8 makes the returned y the TOP of the text block, so it is
     independent of line count: one-line and two-line cues start at the same
     height and grow downward, away from the Chinese text.
+
+    The gap is measured from base_font_size, not the cue's own size. Layout
+    already shrinks long cues to fit the frame width, so deriving the gap
+    from the shrunken size would drift the top between cues - the exact
+    jitter \\an8 is here to prevent.
     """
     if line_count <= 0:
         raise ValueError("line_count must be positive")
@@ -1623,17 +1644,17 @@ def place_below_anchor(
     width, height = frame_size
     x = min(max(0, int(anchor[0])), width)
     baseline = min(max(0, int(anchor[1])), height)
+    top = min(baseline + round((base_font_size or font_size) * gap_ratio), height)
     limit = height - round(height * bottom_safe_ratio)
     floor_size = max(1, round(font_size * min_font_scale))
 
     for size in range(font_size, floor_size - 1, -1):
-        top = baseline + round(size * gap_ratio)
         if top + round(size * line_height * line_count) <= limit:
-            return Placement(x=x, y=min(top, height), font_size=size, alignment=ALIGN_TOP_CENTER)
+            return Placement(x=x, y=top, font_size=size, alignment=ALIGN_TOP_CENTER)
 
     block = round(floor_size * line_height * line_count)
-    top = min(baseline + round(floor_size * gap_ratio), max(0, height - block))
-    return Placement(x=x, y=top, font_size=floor_size, alignment=ALIGN_TOP_CENTER, clamped=True)
+    return Placement(x=x, y=min(top, max(0, height - block)),
+                     font_size=floor_size, alignment=ALIGN_TOP_CENTER, clamped=True)
 ```
 
 - [ ] **Step 4: Chạy test để xác nhận nó pass**
@@ -1847,6 +1868,9 @@ def write_ass(
                     fixed_anchor,
                     line_count=len(laid_out.lines),
                     font_size=laid_out.font_size,
+                    # The gap must come from the style's size, not the cue's
+                    # shrunken one, so every cue shares the same top edge.
+                    base_font_size=style.font_size,
                     frame_size=frame_size,
                 )
                 override = f"{{\\an{spot.alignment}\\pos({spot.x},{spot.y})\\fs{spot.font_size}}}"
@@ -2807,8 +2831,10 @@ git commit -m "feat(ui): add dubbing controls and an optional erase toggle"
 - Test: `tests/test_cli_dub_flags.py`
 
 **Interfaces:**
-- Consumes: `ProjectStartRequest` (T11), `DUCK_LEVELS` (T12)
+- Consumes: `ProjectStartRequest` (T11), `VOICE_FEMALE`/`VOICE_MALE` (T4)
 - Produces: cờ CLI `--erase-subtitles`, `--no-dub`, `--dub-voice-female`, `--dub-voice-male`, `--dub-default-gender`, `--dub-rate`, `--duck-ratio`
+
+CLI nhận `--duck-ratio` là số nguyên trực tiếp, **không** dùng `DUCK_LEVELS` — bảng nhãn Nhẹ/Vừa/Mạnh chỉ phục vụ giao diện.
 
 - [ ] **Step 1: Viết test hỏng**
 
