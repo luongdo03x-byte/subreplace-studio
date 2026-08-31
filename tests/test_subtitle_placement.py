@@ -91,15 +91,30 @@ def test_placement_is_hashable_and_frozen():
         result.y = 5
 
 
-def test_top_stays_constant_even_when_clamped():
-    """The invariant must survive the clamp path, not just the fitting path."""
+@pytest.mark.parametrize("anchor_y", [700, 1100, 1159, 1200, 1258, 1279])
+@pytest.mark.parametrize("base", [36, 42, 54])
+def test_top_never_moves_across_the_fitting_clamp_boundary(anchor_y, base):
+    """One anchor, one base size: every cue must share a top edge.
+
+    anchor_y=1159 with base=54 previously straddled the boundary - a one-line
+    cue fitted while a two-line cue clamped, giving two different tops.
+    """
     ys = {
-        place_below_anchor((360, 1258), line_count=lines, font_size=size,
-                           base_font_size=42, frame_size=FRAME).y
+        place_below_anchor((360, anchor_y), line_count=lines, font_size=size,
+                           base_font_size=base, frame_size=FRAME).y
         for lines in (1, 2)
-        for size in (42, 38, 33)
+        for size in range(round(base * 0.78), base + 1)
     }
-    assert len(ys) == 1, f"clamped cues drifted: {sorted(ys)}"
+    assert len(ys) == 1, f"drifted: {sorted(ys)}"
+
+
+@pytest.mark.parametrize("anchor_y", [700, 1100, 1159, 1200, 1258, 1279])
+def test_no_cue_ever_overflows_the_frame(anchor_y):
+    for lines in (1, 2):
+        for size in range(33, 43):
+            spot = place_below_anchor((360, anchor_y), line_count=lines, font_size=size,
+                                      base_font_size=42, frame_size=FRAME)
+            assert spot.y + round(spot.font_size * 1.2 * lines) <= FRAME[1]
 
 
 def test_clamped_cues_still_fit_inside_the_frame():
@@ -107,7 +122,6 @@ def test_clamped_cues_still_fit_inside_the_frame():
         for size in (42, 38, 33):
             spot = place_below_anchor((360, 1258), line_count=lines, font_size=size,
                                       base_font_size=42, frame_size=FRAME)
-            assert spot.clamped is True
             assert spot.y + round(spot.font_size * 1.2 * lines) <= FRAME[1]
 
 

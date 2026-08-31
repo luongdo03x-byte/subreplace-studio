@@ -54,19 +54,22 @@ def place_below_anchor(
     width, height = frame_size
     x = min(max(0, int(anchor[0])), width)
     baseline = min(max(0, int(anchor[1])), height)
-    top = min(baseline + round((base_font_size or font_size) * gap_ratio), height)
+
+    # y is derived only from the anchor and the style's base size, never from
+    # this cue's line count or shrunken font size. Layout shrinks long cues to
+    # fit the frame width, so anything cue-dependent here would drift the top
+    # edge between cues - the exact jitter the \an8 anchor exists to prevent.
+    # The reservation is the worst case the layout can produce: max_line_count
+    # lines at the base floor size (SubtitleLayout caps cues at two lines).
+    base = base_font_size or font_size
+    base_floor = max(1, round(base * min_font_scale))
+    reserve = round(base_floor * line_height * max_line_count)
+    y = min(baseline + round(base * gap_ratio), max(0, height - reserve))
+
     limit = height - round(height * bottom_safe_ratio)
     floor_size = max(1, round(font_size * min_font_scale))
-
     for size in range(font_size, floor_size - 1, -1):
-        if top + round(size * line_height * line_count) <= limit:
-            return Placement(x=x, y=top, font_size=size, alignment=ALIGN_TOP_CENTER)
-
-    # Nothing fits below the source band. Reserve the worst case the layout can
-    # produce - max_line_count lines at the base floor size - so every clamped
-    # cue lands on the same top edge instead of drifting by line count and font
-    # size, and so the reserved block is never smaller than what any cue needs.
-    base_floor = max(1, round((base_font_size or font_size) * min_font_scale))
-    block = round(base_floor * line_height * max_line_count)
-    return Placement(x=x, y=min(top, max(0, height - block)),
-                     font_size=floor_size, alignment=ALIGN_TOP_CENTER, clamped=True)
+        if y + round(size * line_height * line_count) <= limit:
+            return Placement(x=x, y=y, font_size=size, alignment=ALIGN_TOP_CENTER)
+    return Placement(x=x, y=y, font_size=floor_size, alignment=ALIGN_TOP_CENTER,
+                     clamped=True)
