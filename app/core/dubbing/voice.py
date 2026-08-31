@@ -61,6 +61,18 @@ def _frame_f0(frame: np.ndarray, sample_rate: int) -> float:
     # which is what separates speech from noise and room tone here.
     if window[peak] < VOICED_CORRELATION:
         return 0.0
+    # If the peak is at the edge of the search window, the true period is outside
+    # [F0_MIN_HZ, F0_MAX_HZ], so we cannot measure it reliably and must fail safe.
+    if peak == 0 or peak == len(window) - 1:
+        return 0.0
+    # Check if this might be a second harmonic of a frequency outside the window.
+    # If the correlation at half the detected lag is stronger, this peak is probably
+    # a harmonic and the true fundamental is outside the searchable range.
+    detected_lag = min_lag + peak
+    half_lag = detected_lag // 2
+    if half_lag >= 1 and half_lag < len(correlation):
+        if correlation[half_lag] > correlation[detected_lag]:
+            return 0.0
     return float(sample_rate) / float(min_lag + peak)
 
 

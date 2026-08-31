@@ -110,3 +110,24 @@ def test_read_slice_downmixes_stereo(tmp_path):
 )
 def test_gender_boundaries(f0, expected):
     assert choose_gender(f0) == expected
+
+
+def test_pitch_below_the_search_window_fails_safe(tmp_path):
+    """A 50Hz tone must not be reported as 320Hz "female"."""
+    path = _write_wav(tmp_path / "deep.wav", _tone(50.0))
+    samples, rate = read_slice(path, 0, 1000)
+    assert estimate_f0(samples, rate) == 0.0
+    assert choose_gender(estimate_f0(samples, rate)) == "default"
+
+
+def test_pitch_above_the_search_window_fails_safe(tmp_path):
+    path = _write_wav(tmp_path / "high.wav", _tone(400.0))
+    samples, rate = read_slice(path, 0, 1000)
+    assert estimate_f0(samples, rate) == 0.0
+
+
+def test_pitch_inside_the_window_is_unaffected_by_the_edge_guard(tmp_path):
+    for freq in (85.0, 120.0, 220.0, 260.0):
+        path = _write_wav(tmp_path / f"tone{int(freq)}.wav", _tone(freq))
+        samples, rate = read_slice(path, 0, 1000)
+        assert estimate_f0(samples, rate) == pytest.approx(freq, rel=0.05), freq
