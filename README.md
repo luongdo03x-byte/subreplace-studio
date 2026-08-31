@@ -1,4 +1,4 @@
-# SubReplace Studio 0.3.1
+# SubReplace Studio 0.3.2
 
 SubReplace Studio is a local Windows/Linux desktop pipeline for replacing burned-in Chinese dialogue subtitles with Vietnamese or English while preserving watermark pixels and reconstructing the original background.
 
@@ -25,6 +25,11 @@ cd subreplace-studio
 Set-ExecutionPolicy -Scope Process Bypass
 .\run-windows.ps1
 ```
+
+For a new Windows machine, extract the Windows release ZIP and double-click
+`INSTALL-WINDOWS.cmd`. The bootstrap installs Python 3.12 and FFmpeg through
+`winget` when needed, installs the complete desktop/AI runtime, and creates a
+`SubReplace Studio` desktop shortcut. Internet access is required on first install.
 
 Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. PaddleOCR and Whisper models are downloaded on demand during the first processing job.
 
@@ -86,4 +91,4 @@ python -m pytest -q
 
 API keys can be stored through the operating-system keyring and are not written to project files. Models, project caches, videos, virtual environments, and release artifacts are excluded from Git.
 
-Version 0.3.1 fixes low-disk batch startup, reports per-video failures, cleans temporary batch caches, and sorts numeric filenames naturally.
+Version 0.3.2 packages the latest batch retry and stable subtitle-position fixes with a one-click Windows bootstrap installer.
