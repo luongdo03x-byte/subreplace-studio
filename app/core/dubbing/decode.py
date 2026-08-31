@@ -53,6 +53,8 @@ def _run(command: list[str], payload: bytes) -> np.ndarray:
     proc = subprocess.run([binary, *command[1:]], input=payload, capture_output=True, check=False)
     if proc.returncode != 0:
         raise DecodeError(f"ffmpeg audio conversion failed: {proc.stderr[-2000:].decode('utf-8', 'replace')}")
+    if len(proc.stdout) % 2 != 0:
+        raise DecodeError(f"ffmpeg produced odd-length PCM payload: {len(proc.stdout)} bytes")
     return np.frombuffer(proc.stdout, dtype="<i2").astype(np.int16)
 
 
