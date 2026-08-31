@@ -89,3 +89,33 @@ def test_placement_is_hashable_and_frozen():
     assert isinstance(result, Placement)
     with pytest.raises(Exception):
         result.y = 5
+
+
+def test_top_stays_constant_even_when_clamped():
+    """The invariant must survive the clamp path, not just the fitting path."""
+    ys = {
+        place_below_anchor((360, 1258), line_count=lines, font_size=size,
+                           base_font_size=42, frame_size=FRAME).y
+        for lines in (1, 2)
+        for size in (42, 38, 33)
+    }
+    assert len(ys) == 1, f"clamped cues drifted: {sorted(ys)}"
+
+
+def test_clamped_cues_still_fit_inside_the_frame():
+    for lines in (1, 2):
+        for size in (42, 38, 33):
+            spot = place_below_anchor((360, 1258), line_count=lines, font_size=size,
+                                      base_font_size=42, frame_size=FRAME)
+            assert spot.clamped is True
+            assert spot.y + round(spot.font_size * 1.2 * lines) <= FRAME[1]
+
+
+def test_fitting_path_invariant_is_unchanged():
+    ys = {
+        place_below_anchor((360, 800), line_count=lines, font_size=size,
+                           base_font_size=42, frame_size=FRAME).y
+        for lines in (1, 2)
+        for size in (42, 38, 33)
+    }
+    assert len(ys) == 1

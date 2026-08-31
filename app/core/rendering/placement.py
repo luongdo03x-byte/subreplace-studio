@@ -34,6 +34,7 @@ def place_below_anchor(
     line_height: float = 1.2,
     min_font_scale: float = 0.78,
     bottom_safe_ratio: float = 0.02,
+    max_line_count: int = 2,
 ) -> Placement:
     """Anchor the top of the translated block just under the source subtitle.
 
@@ -61,6 +62,11 @@ def place_below_anchor(
         if top + round(size * line_height * line_count) <= limit:
             return Placement(x=x, y=top, font_size=size, alignment=ALIGN_TOP_CENTER)
 
-    block = round(floor_size * line_height * line_count)
+    # Nothing fits below the source band. Reserve the worst case the layout can
+    # produce - max_line_count lines at the base floor size - so every clamped
+    # cue lands on the same top edge instead of drifting by line count and font
+    # size, and so the reserved block is never smaller than what any cue needs.
+    base_floor = max(1, round((base_font_size or font_size) * min_font_scale))
+    block = round(base_floor * line_height * max_line_count)
     return Placement(x=x, y=min(top, max(0, height - block)),
                      font_size=floor_size, alignment=ALIGN_TOP_CENTER, clamped=True)
