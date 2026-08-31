@@ -129,6 +129,9 @@ def test_one_failed_line_leaves_its_window_silent_but_completes(tmp_path):
         "speech_synthesizer": _FakeSynthesizer(fail_ids={"cau hai"}), "pcm_codec": _FakeCodec(),
     })
     assert events[-1].type is WorkerEventType.COMPLETED
+    # StageEvent (what the UI actually receives) has no `data` field, so a
+    # partial failure must be visible in the message text, not just the dict.
+    assert "1 failed" in events[-1].message
     report = json.loads((root / "cache" / "dub" / "dub-report.json").read_text(encoding="utf-8"))
     by_id = {item["id"]: item for item in report["segments"]}
     assert by_id["b"]["failed"] is True

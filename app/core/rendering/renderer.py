@@ -32,7 +32,10 @@ def build_filter_complex(*, ass_path: str, dubbed: bool, duck_ratio: int) -> str
     return (
         f"[0:v]ass={ass_path}[v];"
         "[0:a]aresample=48000[orig];"
-        "[1:a]aresample=48000[dub];"
+        # apad keeps the dub input from ending sidechaincompress (and thus the
+        # whole mix) early: without it, encoder padding that lets the audio
+        # stream slightly outlast the video stream truncates the output.
+        "[1:a]aresample=48000,apad[dub];"
         f"[orig][dub]sidechaincompress=threshold=0.02:ratio={duck_ratio}:attack=20:release=400[ducked];"
         "[ducked][dub]amix=inputs=2:duration=first:normalize=0[aout]"
     )

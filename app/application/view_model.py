@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import shlex
 
 from app.application.session import StudioSession
@@ -148,6 +149,8 @@ class StudioViewModel:
             }
         raise ValueError("temporal provider must be one of: classical, propainter, e2fgvi")
 
+    _DUB_RATE_PATTERN = re.compile(r"^[+-]\d+%$")
+
     def _dub_config(self, request: ProjectStartRequest) -> dict[str, object] | None:
         if not request.dub_enabled:
             return None
@@ -159,11 +162,17 @@ class StudioViewModel:
             raise ValueError("dub_default_gender must be 'female' or 'male'")
         if request.duck_ratio <= 0:
             raise ValueError("duck_ratio must be positive")
+        rate = request.dub_rate.strip() or "+0%"
+        # edge-tts takes this string as-is; a malformed value (e.g. "20"
+        # instead of "+20%") is only discovered after ~800 lines of retry
+        # backoff, so reject it here instead.
+        if not self._DUB_RATE_PATTERN.fullmatch(rate):
+            raise ValueError(f"dub_rate must look like '+20%' or '-10%' (got {rate!r})")
         return {
             "voice_female": female,
             "voice_male": male,
             "default_gender": request.dub_default_gender,
-            "rate": request.dub_rate.strip() or "+0%",
+            "rate": rate,
             "duck_ratio": int(request.duck_ratio),
         }
 

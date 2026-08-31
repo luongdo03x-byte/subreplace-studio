@@ -92,8 +92,9 @@ def test_synthesis_config_points_at_existing_cache_artifacts(tmp_path):
     assert config["media_path"] == _config(commands, "analyze_media")["output_path"]
 
 
-def test_same_settings_always_produce_the_same_stage_sequence(tmp_path):
-    project = _project(tmp_path)
-    first = build_full_commands(project, translation_config=TRANSLATION, dub_config=DUB)
-    second = build_full_commands(project, translation_config=TRANSLATION, dub_config=DUB)
-    assert _stages(first) == _stages(second)
+def test_synthesis_config_excludes_duck_ratio(tmp_path):
+    # duck_ratio only feeds render_final's audio mix; synthesize_speech never
+    # reads it, so its config should carry only the keys it actually uses.
+    commands = build_full_commands(_project(tmp_path), translation_config=TRANSLATION, dub_config=DUB)
+    assert "duck_ratio" not in _config(commands, "synthesize_speech")
+    assert _config(commands, "render_final")["duck_ratio"] == 12

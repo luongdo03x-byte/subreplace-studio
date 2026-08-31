@@ -195,7 +195,9 @@ class SpeechSynthesizer(Protocol):
 ```
 
 `EdgeTTSProvider` bọc `edge_tts.Communicate(...)` (API async) trong `asyncio.run()`,
-trả bytes MP3 24kHz mono, ghi ra `cache/dub/seg-<id>.mp3` (xoá sau khi ghép track).
+trả bytes MP3 24kHz mono. Audio từng câu giữ trong bộ nhớ (không ghi ra
+`cache/dub/seg-<id>.mp3`) cho tới khi ghép thành track — đỡ một vòng I/O đĩa không
+cần thiết cho mỗi câu.
 
 **Song song:** pool 4 luồng. Mỗi câu độc lập nên không có state chia sẻ.
 
@@ -329,7 +331,7 @@ Nếu `cy + chiều_cao_khối > height - height * 0.02`:
 
 Chỉ xảy ra khi chữ Trung nằm sát mép dưới khung.
 
-Cảnh báo được `render_final` ghi ra `cache/exports/render-report.json` — theo đúng kiểu
+Cảnh báo được `render_final` ghi ra `exports/render-report.json` — theo đúng kiểu
 `erase_video` đang ghi `erase-report.json` — và kèm vào `data` của event COMPLETED để
 hiện lên UI:
 
@@ -446,7 +448,7 @@ thuần; phần chạm ngoài nằm sau Protocol và được tiêm giả qua c�
 | edge-tts hỏng 1 câu (sau 3 lần retry) | khoảng đó im lặng, ghi report, chạy tiếp |
 | edge-tts hỏng **toàn bộ** câu | stage FAILED, retry được từ đúng stage này |
 | chưa cài `edge_tts` | preflight chặn trước khi tạo project |
-| video không có audio | tự tắt lồng tiếng + `WorkerEventType.LOG` cảnh báo, phụ đề vẫn chạy |
+| video không có audio | tự tắt lồng tiếng, phụ đề vẫn chạy. `build_full_commands` là hàm dựng lệnh thuần, không có luồng event, nên không phát cảnh báo ở lớp này — tín hiệu là stage `synthesize_speech` **vắng mặt** khỏi dãy lệnh |
 | không nhận được chữ Trung nào | về hành vi cũ: `MarginV` đáy khung, không `\pos` |
 | chữ Trung sát đáy khung | thu nhỏ chữ; hết cỡ thì kẹp + ghi `placement_warnings` |
 | tempo vượt `rushed_tempo` | vẫn ép đúng khung, gắn cờ `rushed` trong report |

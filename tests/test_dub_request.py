@@ -58,6 +58,20 @@ def test_dub_config_rejects_an_unknown_default_gender():
         vm._dub_config(_request(dub_default_gender="other"))
 
 
+def test_dub_config_accepts_a_well_formed_rate():
+    vm = StudioViewModel(require_desktop=False)
+    config = vm._dub_config(_request(dub_rate="-15%"))
+    assert config["rate"] == "-15%"
+
+
+def test_dub_config_rejects_a_malformed_rate():
+    # A user typing "20" instead of "+20%" would otherwise be passed straight
+    # to edge-tts and only fail after retry backoff across every line.
+    vm = StudioViewModel(require_desktop=False)
+    with pytest.raises(ValueError):
+        vm._dub_config(_request(dub_rate="20"))
+
+
 def test_edge_tts_is_required_only_when_dubbing():
     missing = StudioViewModel(require_desktop=False, module_probe=lambda name: name != "edge_tts")
     with_dub = missing._runtime_checks(_request(), has_audio=True)

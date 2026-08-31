@@ -98,13 +98,16 @@ def build_full_commands(
     # silent source turns it off rather than failing the run.
     dubbing = bool(dub_config) and has_audio
     if dubbing:
+        # duck_ratio only feeds render_final's audio mix; synthesize_speech
+        # never reads it, so keep it out of that stage's config.
+        synth_dub_config = {key: value for key, value in dict(dub_config or {}).items() if key != "duck_ratio"}
         core.append(WorkerCommand("pending", "synthesize_speech", str(root), {
             "translated_path": str(translated),
             "source_audio_path": str(audio),
             "media_path": str(media),
             "output_path": str(dub_track),
             "report_path": str(dub_report),
-            **dict(dub_config or {}),
+            **synth_dub_config,
         }))
 
     render_config: dict[str, object] = {

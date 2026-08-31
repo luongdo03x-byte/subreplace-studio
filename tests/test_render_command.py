@@ -23,6 +23,15 @@ def test_dubbed_graph_burns_subtitles_and_ducks_the_original():
     assert "amix=inputs=2:duration=first:normalize=0[aout]" in graph
 
 
+def test_dub_input_is_padded_so_a_shorter_dub_track_does_not_truncate_output():
+    # sidechaincompress ends when its SHORTER input ends; without apad on the
+    # dub input, a dub track shorter than the video (routine: media.json's
+    # duration_ms comes from the video stream, not the audio stream) silently
+    # truncates the whole render's audio to the dub track's length.
+    graph = build_filter_complex(ass_path="/tmp/t.ass", dubbed=True, duck_ratio=12)
+    assert "[1:a]aresample=48000,apad[dub]" in graph
+
+
 def test_duck_ratio_reaches_the_filter():
     for ratio in (6, 12, 20):
         graph = build_filter_complex(ass_path="/tmp/t.ass", dubbed=True, duck_ratio=ratio)

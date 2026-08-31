@@ -56,7 +56,9 @@ Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. PaddleOCR a
 
 Erasing the burned-in Chinese subtitles is now off by default. With erasing
 off the Vietnamese subtitle is anchored below the Chinese band instead of
-over it, and the render skips a full decode/encode pass of every frame.
+over it, and turning erasing off skips the erase stage's full
+decode/reconstruct/encode pass over every frame. The render itself always
+re-encodes the video (`-crf 18`).
 
 ## Workflow
 

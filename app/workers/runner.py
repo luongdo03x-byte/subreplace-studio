@@ -316,9 +316,15 @@ def _run_synthesize_speech(command: WorkerCommand, dependencies: dict[str, Any])
         "rushed_count": rushed_count,
         "failed_count": failed_count,
     })
+    # The UI's on_progress callback receives StageEvent, which has no `data`
+    # field, so the counts must ride in the message text to actually reach it.
+    completion_message = (
+        f"Speech synthesis completed ({len(report_segments)} lines, "
+        f"{rushed_count} rushed, {failed_count} failed)"
+    )
     return (
         _event(command, WorkerEventType.STARTED, 0.0, "Speech synthesis started"),
-        _event(command, WorkerEventType.COMPLETED, 1.0, "Speech synthesis completed", {
+        _event(command, WorkerEventType.COMPLETED, 1.0, completion_message, {
             "output_path": str(output_path), "report_path": str(report_path),
             "count": len(report_segments), "rushed_count": rushed_count, "failed_count": failed_count,
         }),

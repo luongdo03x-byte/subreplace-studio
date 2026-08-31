@@ -216,13 +216,18 @@ if PYSIDE6_AVAILABLE:
                 return
             try:
                 translation = self.view_model._translation_config(request)
-                temporal = self.view_model._temporal_config(request)
+                # Validating a temporal plugin the user is not going to run would block
+                # the common no-erase path for no reason (mirrors StudioViewModel.start).
+                temporal = self.view_model._temporal_config(request) if request.erase_subtitles else None
+                dub_config = self.view_model._dub_config(request)
                 has_audio = bool(self.view_model.media.probe(project.source_path).has_audio)
                 self.session.retry_full(
                     project, handle.job_id,
                     translation_config=translation, temporal_config=temporal,
                     on_progress=self.signals.stage_event.emit,
                     has_audio=has_audio,
+                    erase_enabled=request.erase_subtitles,
+                    dub_config=dub_config,
                 )
                 self.processing_view.retry_button.setEnabled(False)
                 self.processing_view.cancel_button.setEnabled(True)

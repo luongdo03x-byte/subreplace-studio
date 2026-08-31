@@ -12,7 +12,7 @@ from app.models.project import Project
 from .migrations import CURRENT_PROJECT_SCHEMA_VERSION, migrate_payload
 
 
-CACHE_DIRS = ("audio", "frames", "detection", "ocr", "asr", "masks", "clean", "translation")
+CACHE_DIRS = ("audio", "frames", "detection", "ocr", "asr", "masks", "clean", "translation", "dub")
 
 
 class ProjectService:
