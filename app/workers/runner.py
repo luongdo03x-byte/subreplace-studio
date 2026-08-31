@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,12 @@ from app.providers.translation.openai import OpenAITranslationProvider
 from app.providers.translation.gemini import GeminiTranslationProvider
 from app.providers.translation.custom import CustomAPITranslationProvider
 from app.providers.translation.local import LocalCommandTranslationProvider
+from app.core.dubbing.decode import PcmCodec
+from app.core.dubbing.protocol import SpeechSynthesisError
+from app.core.dubbing.timing import fit_tempo
+from app.core.dubbing.track import TrackSegment, build_track, write_wav
+from app.core.dubbing.voice import choose_gender, estimate_f0, read_slice
+from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE, EdgeTTSProvider
 from app.models.subtitle import SubtitleSegment
 from app.models.enums import TextType, ReviewStatus
 from app.core.rendering.renderer import SubtitleRenderer
@@ -209,6 +216,111 @@ def _run_translate_events(command: WorkerCommand, dependencies: dict[str, Any]) 
     return (
         _event(command, WorkerEventType.STARTED, 0.0, "Translation started"),
         _event(command, WorkerEventType.COMPLETED, 1.0, "Translation completed", {"output_path": str(output_path), "count": len(payload)}),
+    )
+
+
+def _run_synthesize_speech(command: WorkerCommand, dependencies: dict[str, Any]) -> tuple[WorkerEvent, ...]:
+    config = command.config
+    translated_path = _project_path(command, "translated_path")
+    source_audio_path = _project_path(command, "source_audio_path")
+    media_path = _project_path(command, "media_path")
+    output_path = _project_path(command, "output_path")
+    report_path = _project_path(command, "report_path")
+    sample_rate = int(config.get("sample_rate", 24000))
+    concurrency = max(1, int(config.get("concurrency", 4)))
+    rushed_tempo = float(config.get("rushed_tempo", 1.5))
+    rate = str(config.get("rate") or "+0%")
+    voices = {
+        "male": str(config.get("voice_male") or VOICE_MALE),
+        "female": str(config.get("voice_female") or VOICE_FEMALE),
+    }
+    default_gender = str(config.get("default_gender") or "female")
+    voices["default"] = voices.get(default_gender, voices["female"])
+
+    raw = json.loads(translated_path.read_text(encoding="utf-8"))
+    media = json.loads(media_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list) or not isinstance(media, dict):
+        raise ValueError("synthesis inputs have invalid JSON shape")
+    total_ms = int(media.get("duration_ms", 0))
+    if total_ms <= 0:
+        raise ValueError("media duration_ms is required for speech synthesis")
+
+    synthesizer = dependencies.get("speech_synthesizer") or EdgeTTSProvider()
+    codec = dependencies.get("pcm_codec") or PcmCodec()
+
+    # Pitch is read sequentially: one wav handle, and it costs milliseconds.
+    # Only the network calls are worth parallelising.
+    planned: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("target_text") or "").strip()
+        start_ms = int(item.get("start_ms", 0))
+        end_ms = int(item.get("end_ms", 0))
+        if not text or end_ms <= start_ms:
+            continue
+        samples, source_rate = read_slice(source_audio_path, start_ms, end_ms)
+        f0 = estimate_f0(samples, source_rate)
+        gender = choose_gender(f0)
+        planned.append({
+            "id": str(item.get("id") or f"segment-{index + 1}"),
+            "text": text, "start_ms": start_ms, "end_ms": end_ms,
+            "f0_hz": round(f0, 1), "gender": gender, "voice": voices[gender],
+        })
+
+    def speak(entry: dict[str, Any]) -> dict[str, Any]:
+        record = dict(entry)
+        try:
+            audio = synthesizer.synthesize(entry["text"], voice=entry["voice"], rate=rate)
+            natural = codec.decode(audio, sample_rate=sample_rate)
+            natural_ms = max(1, int(round(len(natural) * 1000 / sample_rate)))
+            window_ms = entry["end_ms"] - entry["start_ms"]
+            tempo = fit_tempo(natural_ms, window_ms)
+            record["tempo"] = round(tempo, 3)
+            record["rushed"] = tempo > rushed_tempo
+            record["failed"] = False
+            record["samples"] = codec.stretch(natural, tempo=tempo, sample_rate=sample_rate)
+        except (SpeechSynthesisError, ValueError, RuntimeError) as exc:
+            # A dropped line leaves silence; it must not abort a 40-minute job.
+            record["tempo"] = 0.0
+            record["rushed"] = False
+            record["failed"] = True
+            record["error"] = str(exc)
+            record["samples"] = None
+        return record
+
+    results: list[dict[str, Any]] = []
+    if planned:
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            results = list(pool.map(speak, planned))
+
+    if planned and all(item["failed"] for item in results):
+        raise RuntimeError("speech synthesis failed for every line; check the network connection")
+
+    segments = [
+        TrackSegment(start_ms=item["start_ms"], end_ms=item["end_ms"], samples=item["samples"])
+        for item in results if item["samples"] is not None
+    ]
+    track = build_track(segments, total_ms=total_ms, sample_rate=sample_rate)
+    write_wav(output_path, track, sample_rate=sample_rate)
+
+    report_segments = [
+        {key: item[key] for key in ("id", "voice", "f0_hz", "tempo", "rushed", "failed")}
+        for item in results
+    ]
+    rushed_count = sum(1 for item in report_segments if item["rushed"])
+    failed_count = sum(1 for item in report_segments if item["failed"])
+    _write_json(report_path, {
+        "segments": report_segments,
+        "rushed_count": rushed_count,
+        "failed_count": failed_count,
+    })
+    return (
+        _event(command, WorkerEventType.STARTED, 0.0, "Speech synthesis started"),
+        _event(command, WorkerEventType.COMPLETED, 1.0, "Speech synthesis completed", {
+            "output_path": str(output_path), "report_path": str(report_path),
+            "count": len(report_segments), "rushed_count": rushed_count, "failed_count": failed_count,
+        }),
     )
 
 
@@ -929,6 +1041,8 @@ def execute_command(command: WorkerCommand, *, dependencies: dict[str, Any] | No
     try:
         if command.stage == "translate_events":
             return _run_translate_events(command, deps)
+        if command.stage == "synthesize_speech":
+            return _run_synthesize_speech(command, deps)
         if command.stage == "render_final":
             return _run_render_final(command, deps)
         if command.stage == "erase_video":
