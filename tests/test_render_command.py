@@ -29,7 +29,8 @@ def test_dub_input_is_padded_so_a_shorter_dub_track_does_not_truncate_output():
     # duration_ms comes from the video stream, not the audio stream) silently
     # truncates the whole render's audio to the dub track's length.
     graph = build_filter_complex(ass_path="/tmp/t.ass", dubbed=True, duck_ratio=12)
-    assert "[1:a]aresample=48000,apad[dub]" in graph
+    dub_chain = next(s for s in graph.split(";") if s.startswith("[1:a]"))
+    assert "apad" in dub_chain, dub_chain
 
 
 def test_duck_ratio_reaches_the_filter():
@@ -113,3 +114,35 @@ def test_empty_dub_track_falls_back_to_the_plain_render(tmp_path):
     real = tmp_path / "real.wav"
     real.write_bytes(b"\x00" * 64)
     assert renderer._dub_is_usable(real) is True
+
+
+def test_no_filtergraph_label_is_consumed_more_than_once():
+    """A filtergraph label may be produced once and consumed once.
+
+    Naming one twice does not duplicate the stream. ffmpeg re-reads the second
+    mention as a STREAM SPECIFIER, silently binds it to an input, and the
+    render still succeeds at the right duration - so nothing fails and nothing
+    warns. Shipping that once meant the ducking sidechain and the mixed-in
+    voice both claimed [dub]: the output was the original audio summed with
+    itself and contained no Vietnamese at all. asplit is what makes the
+    narration reach both consumers.
+    """
+    import re
+    from collections import Counter
+
+    graph = build_filter_complex(ass_path="/tmp/t.ass", dubbed=True, duck_ratio=12)
+    counts = Counter(re.findall(r"\[([^\]]+)\]", graph))
+    overused = {name: n for name, n in counts.items() if n > 2}
+    assert not overused, f"label(s) used more than twice: {overused}"
+
+
+def test_narration_is_split_for_the_sidechain_and_the_mix():
+    graph = build_filter_complex(ass_path="/tmp/t.ass", dubbed=True, duck_ratio=12)
+    steps = graph.split(";")
+    assert any("asplit=2" in s for s in steps)
+    # One branch drives the ducking, the other is the voice actually heard.
+    sidechain = next(s for s in steps if "sidechaincompress" in s)
+    mix = next(s for s in steps if "amix" in s)
+    assert sidechain.startswith("[orig][dubsc]"), sidechain
+    assert mix.startswith("[ducked][dubmix]"), mix
+    assert "dubmix" not in sidechain and "dubsc" not in mix

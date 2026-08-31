@@ -35,9 +35,17 @@ def build_filter_complex(*, ass_path: str, dubbed: bool, duck_ratio: int) -> str
         # apad keeps the dub input from ending sidechaincompress (and thus the
         # whole mix) early: without it, encoder padding that lets the audio
         # stream slightly outlast the video stream truncates the output.
-        "[1:a]aresample=48000,apad[dub];"
-        f"[orig][dub]sidechaincompress=threshold=0.02:ratio={duck_ratio}:attack=20:release=400[ducked];"
-        "[ducked][dub]amix=inputs=2:duration=first:normalize=0[aout]"
+        #
+        # asplit is load-bearing, not tidiness. The narration is needed twice -
+        # once as the sidechain that drives the ducking, once as the voice that
+        # is actually mixed in - and a filtergraph label may only be consumed
+        # once. Naming it twice does not duplicate it: ffmpeg re-reads the
+        # second mention as a stream specifier, silently binds it to the input
+        # audio, and mixes the original with itself. The render then succeeds,
+        # runs the right length, ducks nothing, and contains no Vietnamese at all.
+        "[1:a]aresample=48000,apad,asplit=2[dubmix][dubsc];"
+        f"[orig][dubsc]sidechaincompress=threshold=0.02:ratio={duck_ratio}:attack=20:release=400[ducked];"
+        "[ducked][dubmix]amix=inputs=2:duration=first:normalize=0[aout]"
     )
 
 
