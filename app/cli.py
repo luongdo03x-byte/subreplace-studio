@@ -5,6 +5,7 @@ import os
 import sys
 
 from app.application.view_model import PreflightFailedError, ProjectStartRequest, StudioViewModel
+from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +23,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temporal-repo", default="")
     parser.add_argument("--temporal-checkpoint", default="")
     parser.add_argument("--no-fp16", action="store_true")
+    parser.add_argument("--erase-subtitles", action="store_true")
+    parser.add_argument("--no-dub", action="store_true")
+    parser.add_argument("--dub-voice-female", default=VOICE_FEMALE)
+    parser.add_argument("--dub-voice-male", default=VOICE_MALE)
+    parser.add_argument("--dub-default-gender", choices=("female", "male"), default="female")
+    parser.add_argument("--dub-rate", default="+0%")
+    parser.add_argument("--duck-ratio", type=int, default=12)
     return parser
 
 
@@ -47,6 +55,13 @@ def main(argv: list[str] | None = None) -> int:
         temporal_repo_dir=args.temporal_repo,
         temporal_checkpoint=args.temporal_checkpoint,
         fp16=not args.no_fp16,
+        erase_subtitles=args.erase_subtitles,
+        dub_enabled=not args.no_dub,
+        dub_voice_female=args.dub_voice_female,
+        dub_voice_male=args.dub_voice_male,
+        dub_default_gender=args.dub_default_gender,
+        dub_rate=args.dub_rate,
+        duck_ratio=args.duck_ratio,
     )
     vm = StudioViewModel(require_desktop=False)
 

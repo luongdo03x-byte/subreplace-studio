@@ -35,7 +35,8 @@ def prompt_for_translation(
     return (
         "Translate Chinese dialogue subtitles. Return ONLY a JSON array. "
         "Each item must contain exactly segment_id, natural, optimized. "
-        "natural is a faithful natural translation; optimized is concise subtitle-ready text. "
+        "natural is a faithful natural translation; optimized is concise subtitle-ready text "
+        "that is short enough to be spoken aloud within the original line's duration when dubbed. "
         "Do not add facts. Preserve names using glossary. Context is for meaning only; do not translate context as new segments.\n"
         + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )

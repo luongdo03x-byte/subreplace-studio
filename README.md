@@ -45,6 +45,19 @@ Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. PaddleOCR a
 - Sort numeric filenames naturally, for example `1.mp4`, `2.mp4`, `10.mp4`.
 - Do not create matching SRT sidecars automatically, preventing duplicate subtitles in VLC.
 
+## Vietnamese Dubbing
+
+- Generate Vietnamese narration for every translated line with edge-tts.
+- Assign a male or female voice per line from the original speaker's pitch.
+- Fit each line to its subtitle window, and flag over-compressed lines in
+  `cache/dub/dub-report.json`.
+- Duck the original audio under the narration; music and effects stay.
+- Requires an internet connection during the synthesis stage.
+
+Erasing the burned-in Chinese subtitles is now off by default. With erasing
+off the Vietnamese subtitle is anchored below the Chinese band instead of
+over it, and the render skips a full decode/encode pass of every frame.
+
 ## Workflow
 
 `source video -> media probe -> text events -> PaddleOCR -> optional Whisper ASR -> dialogue/watermark classification -> protected erase -> translation -> FFmpeg/libass render -> export`

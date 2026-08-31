@@ -33,7 +33,7 @@ if (-not (Test-Path $Studio)) {
     & $Python @PythonArgs -m venv $Venv
     $RuntimePython = Join-Path $Venv "Scripts\python.exe"
     & $RuntimePython -m pip install --upgrade pip wheel
-    & $RuntimePython -m pip install -e "${RootDir}[desktop,media,ai,cloud]"
+    & $RuntimePython -m pip install -e "${RootDir}[desktop,media,ai,cloud,dub]"
 }
 
 & $Studio @args

@@ -26,6 +26,9 @@ cloud = [
   "openai>=1.0",
   "google-genai>=1.0",
 ]
+dub = [
+  "edge-tts>=7.0",
+]
 dev = [
   "pytest>=8",
   "build>=1.2",

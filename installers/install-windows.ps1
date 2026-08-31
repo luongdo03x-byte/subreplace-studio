@@ -71,7 +71,7 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 & $Python @PythonArgs -m venv --clear (Join-Path $InstallDir ".venv")
 $RuntimePython = Join-Path $InstallDir ".venv\Scripts\python.exe"
 & $RuntimePython -m pip install --upgrade pip wheel
-& $RuntimePython -m pip install "${Wheel}[desktop,media,ai,cloud]"
+& $RuntimePython -m pip install "${Wheel}[desktop,media,ai,cloud,dub]"
 
 $StudioExe = Join-Path $InstallDir ".venv\Scripts\subreplace-studio.exe"
 $BatchExe = Join-Path $InstallDir ".venv\Scripts\subreplace-batch.exe"
