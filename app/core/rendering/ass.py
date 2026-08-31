@@ -7,6 +7,7 @@ from statistics import median
 from app.models.subtitle import SubtitleSegment
 
 from .layout import SubtitleLayout
+from .placement import SubtitlePlacement, place_below_anchor
 from .style import SubtitleStyle
 
 
@@ -53,7 +54,8 @@ def write_ass(
     style: SubtitleStyle,
     *,
     frame_size: tuple[int, int],
-) -> Path:
+    placement: SubtitlePlacement,
+) -> dict[str, object]:
     width, height = frame_size
     layout = SubtitleLayout()
     events: list[str] = []
@@ -64,6 +66,8 @@ def write_ass(
             min(max(0, round(median(anchor[0] for anchor in anchors))), width),
             min(max(0, round(median(anchor[1] for anchor in anchors))), height),
         )
+    clamped = False
+    font_sizes: list[int] = []
     for segment in segments:
         text = segment.translated_text.strip()
         if not text:
@@ -71,11 +75,29 @@ def write_ass(
         laid_out = layout.layout(text, style, frame_size=frame_size)
         rendered = r"\N".join(_escape_ass(line) for line in laid_out.lines)
         override = f"{{\\fs{laid_out.font_size}}}"
+        font_sizes.append(laid_out.font_size)
         if fixed_anchor is not None:
             # A shared median anchor follows the source subtitle region while
             # preventing frame-to-frame OCR jitter from moving translated text.
-            cx, cy = fixed_anchor
-            override = f"{{\\pos({cx},{cy})\\fs{laid_out.font_size}}}"
+            if placement is SubtitlePlacement.BELOW_ANCHOR:
+                # The Chinese text is still on screen, so anchor the TOP of the
+                # block below it with \an8 - that keeps y independent of line
+                # count, so one- and two-line cues start at the same height.
+                spot = place_below_anchor(
+                    fixed_anchor,
+                    line_count=len(laid_out.lines),
+                    font_size=laid_out.font_size,
+                    # The gap must come from the style's size, not the cue's
+                    # shrunken one, so every cue shares the same top edge.
+                    base_font_size=style.font_size,
+                    frame_size=frame_size,
+                )
+                override = f"{{\\an{spot.alignment}\\pos({spot.x},{spot.y})\\fs{spot.font_size}}}"
+                font_sizes[-1] = spot.font_size
+                clamped = clamped or spot.clamped
+            else:
+                cx, cy = fixed_anchor
+                override = f"{{\\pos({cx},{cy})\\fs{laid_out.font_size}}}"
         events.append(
             f"Dialogue: 0,{_ass_time(segment.start_ms)},{_ass_time(segment.end_ms)},Default,,0,0,0,,{override}{rendered}"
         )
@@ -98,4 +120,10 @@ def write_ass(
     ])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    return path
+    return {
+        "placement": placement.value,
+        "anchor": list(fixed_anchor) if fixed_anchor is not None else None,
+        "frame_size": [width, height],
+        "clamped": clamped,
+        "min_font_size": min(font_sizes) if font_sizes else style.font_size,
+    }

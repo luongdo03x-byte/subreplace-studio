@@ -9,8 +9,8 @@ class SubtitleStyle:
     font_size: int = 42
     fill_color: str = "&H00FFFFFF"
     outline_color: str = "&H00101010"
-    outline_width: float = 2.0
-    shadow: float = 0.5
+    outline_width: float = 2.5
+    shadow: float = 1.0
     alignment: int = 2
     max_width_ratio: float = 0.88
     margin_bottom: int = 42

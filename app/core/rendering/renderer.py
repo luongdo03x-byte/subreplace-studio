@@ -11,6 +11,7 @@ from app.core.media.ffmpeg import FFmpegMedia, MediaError
 from app.models.subtitle import SubtitleSegment
 
 from .ass import write_ass, write_srt
+from .placement import SubtitlePlacement
 from .style import SubtitleStyle
 
 
@@ -54,7 +55,8 @@ class SubtitleRenderer:
             raise RenderError(f"required renderer binary is not installed: {self.ffmpeg}")
         with tempfile.TemporaryDirectory(prefix="subreplace-render-") as tmp:
             ass_path = Path(tmp) / "target.ass"
-            write_ass(ass_path, segments, style, frame_size=(metadata.width, metadata.height))
+            write_ass(ass_path, segments, style, frame_size=(metadata.width, metadata.height),
+                      placement=SubtitlePlacement.ON_ANCHOR)
             command = [
                 ffmpeg,
                 "-y",
