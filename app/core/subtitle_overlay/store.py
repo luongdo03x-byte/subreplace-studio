@@ -1,8 +1,33 @@
 """Durable revisions; approvals are bound to a specific immutable payload."""
 import json
+import os
+import csv
+import subprocess
+import sys
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+
+
+def process_alive(pid):
+    if sys.platform == 'win32':
+        # Python os.kill(pid, 0) TERMINATES a process on Windows; query instead.
+        # https://docs.python.org/3/library/os.html#os.kill
+        try:
+            result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode:
+                return True  # Unknown ownership must not unlock an active job.
+            return any(len(row) > 1 and row[1] == str(pid) for row in csv.reader(result.stdout.splitlines()))
+        except (OSError, subprocess.TimeoutExpired):
+            return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except ProcessLookupError:
+        return False
 
 
 class OverlayStore:
@@ -27,6 +52,9 @@ class OverlayStore:
                     source_id TEXT NOT NULL, PRIMARY KEY(batch_id,position));
                 PRAGMA user_version=1;
             ''')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(sources)')}
+            if 'owner_pid' not in columns:
+                db.execute('ALTER TABLE sources ADD COLUMN owner_pid INTEGER')
 
     @contextmanager
     def _db(self):
@@ -52,7 +80,7 @@ class OverlayStore:
                     raise ValueError('Cannot edit while rendering')
             revision = row['revision'] + 1 if row else 1
             db.execute('INSERT INTO revisions VALUES (?,?,?)', (source_id, revision, encoded))
-            db.execute('INSERT OR REPLACE INTO sources VALUES (?,?,NULL,?)',
+            db.execute('INSERT OR REPLACE INTO sources (id,revision,approved,state) VALUES (?,?,NULL,?)',
                        (source_id, revision, 'needs_edit' if payload.get('blocking') else 'review'))
             return revision
 
@@ -95,7 +123,20 @@ class OverlayStore:
                 raise ValueError('Revision is not approved')
             if state == 'rendering' and row['state'] == 'rendering':
                 raise ValueError('Already rendering')
-            db.execute('UPDATE sources SET state=? WHERE id=?', (state, source_id))
+            db.execute('UPDATE sources SET state=?,owner_pid=? WHERE id=?',
+                       (state, os.getpid() if state == 'rendering' else None, source_id))
+
+    def recover_interrupted(self, source_id: str) -> bool:
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT state,owner_pid FROM sources WHERE id=?', (source_id,)).fetchone()
+            if row is None or row['state'] != 'rendering':
+                return False
+            pid = row['owner_pid']
+            if pid and process_alive(pid):
+                return False
+            db.execute('UPDATE sources SET state=?,owner_pid=NULL WHERE id=?', ('failed', source_id))
+            return True
 
     def save_batch(self, batch_id: str, source_ids: tuple[str, ...], profile: dict):
         if not source_ids or len(set(source_ids)) != len(source_ids):

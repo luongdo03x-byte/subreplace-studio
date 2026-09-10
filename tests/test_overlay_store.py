@@ -43,3 +43,30 @@ def test_ordered_batch_survives_reopen(tmp_path):
     assert OverlayStore(path).load_batch('batch')['source_ids'] == ['b', 'a']
     with pytest.raises(ValueError):
         store.save_batch('batch', ('a', 'a'), {})
+
+
+def test_interrupted_render_is_recoverable_only_when_owner_process_exits(tmp_path):
+    import subprocess
+    import sys
+    path = tmp_path/'state.db'
+    code = ('from pathlib import Path; from app.core.subtitle_overlay.store import OverlayStore; '
+            'import sys; s=OverlayStore(Path(sys.argv[1])); r=s.save("a", {}); '
+            's.approve("a",r); s.set_state("a",r,"rendering")')
+    subprocess.run([sys.executable, '-c', code, str(path)], check=True)
+    store = OverlayStore(path)
+    assert store.recover_interrupted('a')
+    assert store.load('a')['state'] == 'failed'
+    store.set_state('a', 1, 'rendering')
+    assert not store.recover_interrupted('a')
+
+
+def test_windows_owner_check_never_sends_a_termination_signal(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from app.core.subtitle_overlay import store as module
+    monkeypatch.setattr(sys, 'platform', 'win32')
+    monkeypatch.setattr(module.os, 'kill', lambda *args: pytest.fail('Windows os.kill is not a liveness probe'))
+    monkeypatch.setattr(module.subprocess, 'run', lambda *args, **kwargs:
+                        SimpleNamespace(returncode=0, stdout='"python.exe","123","Console","1","20 K"\n'))
+    assert module.process_alive(123)
+    assert not module.process_alive(124)

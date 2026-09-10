@@ -9,6 +9,7 @@ tiep) de dong dung lo hong da bi bo lot boi phien ban test vo nghia truoc do.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -117,3 +118,21 @@ def test_retry_matches_start_with_dubbing_on_and_erase_on(qapp, tmp_path):
     assert workflow.retried == workflow.started
     assert "synthesize_speech" in workflow.retried
     assert "erase_video" in workflow.retried
+
+
+def test_desktop_routes_multi_video_selection_to_review_before_render(qapp, tmp_path, monkeypatch):
+    window = _build_window(qapp)
+    window.project_view.source_list.addItems([str(tmp_path/'2.mp4'), str(tmp_path/'1.mp4')])
+    window.project_view.project_root.setText(str(tmp_path/'output'))
+    window.project_view.project_name.setText('batch')
+    window.project_view.merge_outputs.setChecked(True)
+    window.project_view.api_key.clear()
+    captured = []
+    monkeypatch.setattr(window, '_start_overlay', lambda items, merged: captured.append((items, merged)))
+    window._start_processing()
+    items, merged = captured[0]
+    assert [Path(i.request.source_path).name for i in items] == ['2.mp4','1.mp4']
+    assert all(i.request.overlay_prepare_only and not i.request.erase_subtitles for i in items)
+    assert merged.name == 'batch_vi_merged.mp4'
+    assert window.session.workflow.started is None
+    window.close()

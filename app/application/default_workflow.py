@@ -61,6 +61,9 @@ def build_full_commands(
 ) -> tuple[WorkerCommand, ...]:
     root = project.root.resolve()
     core = list(build_core_commands(project, has_audio=has_audio))
+    overlay_prepare = bool(project.settings.get('overlay_prepare_only'))
+    if overlay_prepare:
+        erase_enabled = False
     media = root / "cache" / "frames" / "media.json"
     classified = root / "cache" / "detection" / "classified.json"
     audio = root / "cache" / "audio" / "source.wav"
@@ -125,5 +128,6 @@ def build_full_commands(
     if dubbing:
         render_config["dub_audio_path"] = str(dub_track)
         render_config["duck_ratio"] = int(dict(dub_config or {}).get("duck_ratio", 12))
-    core.append(WorkerCommand("pending", "render_final", str(root), render_config))
+    if not overlay_prepare:
+        core.append(WorkerCommand("pending", "render_final", str(root), render_config))
     return tuple(core)

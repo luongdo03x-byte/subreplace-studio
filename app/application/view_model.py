@@ -42,6 +42,8 @@ class ProjectStartRequest:
     dub_default_gender: str = "female"
     dub_rate: str = "+0%"
     duck_ratio: int = 12
+    overlay_prepare_only: bool = False
+    subtitle_path: str = ""
 
 
 class StudioViewModel:
@@ -200,6 +202,9 @@ class StudioViewModel:
             name=request.project_name.strip() or source.stem,
             target_language=request.target_language,
         )
+        if request.overlay_prepare_only:
+            project.settings['overlay_prepare_only'] = True
+            self.session.project_service.save(project)
         handle = self.session.start_full(
             project,
             translation_config=translation_config,

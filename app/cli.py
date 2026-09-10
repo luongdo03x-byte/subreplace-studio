@@ -10,8 +10,17 @@ from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="subreplace-batch", description="Run SubReplace Studio pipeline without the desktop UI")
-    parser.add_argument("--source", required=True)
-    parser.add_argument("--project", required=True)
+    parser.add_argument("--source", default="")
+    parser.add_argument("--project", default="")
+    parser.add_argument('--overlay-manifest', default='')
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument('--overlay-prepare', action='store_true')
+    actions.add_argument('--overlay-approve', type=int)
+    actions.add_argument('--overlay-render', action='store_true')
+    actions.add_argument('--overlay-y', type=int)
+    parser.add_argument('--accept-fallback', action='store_true')
+    parser.add_argument('--subtitle', default='')
+    parser.add_argument('--output', default='')
     parser.add_argument("--name", default="")
     parser.add_argument("--target", choices=("vi", "en"), default="vi")
     parser.add_argument("--translation-provider", choices=("openai", "gemini", "custom", "local"), default="openai")
@@ -35,6 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.overlay_manifest:
+        from app.application.overlay_cli import run_overlay
+        try:
+            return run_overlay(args)
+        except Exception as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    if not args.source or not args.project:
+        print('--source and --project are required', file=sys.stderr)
+        return 2
     api_key = ""
     if args.api_key_env:
         api_key = os.environ.get(args.api_key_env, "")

@@ -74,5 +74,5 @@ def sample_frames(video: Path, count: int = 300):
                 emitted = chosen.index
             position += 1
         previous = current
-    if previous is not None and previous.index != emitted:
+    if position < count and previous is not None and previous.index != emitted:
         yield previous

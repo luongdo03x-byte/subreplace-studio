@@ -1,6 +1,6 @@
-# SubReplace Studio 0.3.2
+# SubReplace Studio 0.4.0
 
-SubReplace Studio is a local Windows/Linux desktop pipeline for replacing burned-in Chinese dialogue subtitles with Vietnamese or English while preserving watermark pixels and reconstructing the original background.
+SubReplace Studio is a local Windows/Linux desktop pipeline for translating videos. The default desktop mode retains the original Chinese subtitles and places Vietnamese subtitles below them at a locked position for each source video.
 
 **Eraser rule:** no black rectangles, blur boxes, crop/zoom tricks, or translated text drawn over unerased Chinese. Low-confidence reconstruction is routed to review or an installed temporal inpainting provider.
 
@@ -39,11 +39,40 @@ Later launches only require `./run-linux.sh` or `.\run-windows.ps1`. PaddleOCR a
 - Process videos strictly one at a time to keep memory and GPU usage bounded.
 - Produce one translated MP4 for every successful source.
 - Optionally create one long MP4 in the selected order.
-- Normalize dimensions, FPS, sample aspect ratio, and audio before concatenation.
-- Skip failed videos while allowing successful videos to be merged.
-- Delete temporary per-video project caches after each item in a multi-video batch.
+- In fixed-overlay mode, approve five preview images per source before export.
+- Plan a common padded canvas before preview, normalize FPS/audio during the first render, then concatenate with stream copy. No second video encoding pass.
+- Keep source images at the top, without scaling/cropping. Non-square-pixel sources require conversion outside this mode and are rejected at preflight.
+- Require every source in the selected batch to succeed before merging; retain durable state for retry.
 - Sort numeric filenames naturally, for example `1.mp4`, `2.mp4`, `10.mp4`.
 - Do not create matching SRT sidecars automatically, preventing duplicate subtitles in VLC.
+
+## Fixed Vietnamese Subtitles (Phase 1)
+
+Keep **Phụ đề Việt xếp dưới — khóa vị trí và duyệt trước khi xuất** enabled in Project.
+Select/reorder videos and optionally enable merging as before. Leave **Phụ đề Việt có sẵn** empty to use the existing translation pipeline; alternatively enter an SRT/ASS file, or a directory containing subtitle files matching each video basename. Imported subtitles use the subtitle-only path in this phase.
+
+The app samples up to 300 distinct frames, detects persistent centered subtitle blocks in the bottom 40%, and locks the P95 lower boundary plus 0.8% source height. Insufficient room adds bottom padding. Each source retains its own Y, including inside the merged output.
+
+In **Duyệt phụ đề Việt**, inspect five timestamped PNGs, adjust Y/style as needed, then approve individual sources or eligible sources together. Fallback positions require an explicit checkbox confirmation. Edits invalidate previous approval. Detected collisions block export and show timestamps; rare collisions never cause automatic per-scene repositioning. Text detection is imperfect: preview and real-video QA remain necessary.
+
+**Mở lại lô** opens the durable `batch.json` under the output directory's `.subreplace-batches/<batch-id>/`. Keep its adjacent SQLite database and artifacts together. Retry retains source-specific style/Y and verified completed outputs. The legacy mode retains its historical erase/retry/merge behavior when explicitly selected.
+
+Outputs include `*.overlay.json` with locked Y, source extension, fallback flag, measured sample count, warnings, canvas and output fingerprint. Padding added for batch normalization is distinct from the per-source subtitle extension. CRF 18 is lossy: original text pixels are preserved by compositing, not guaranteed bit-identical after compression.
+
+Be Vietnam Pro Regular is bundled under SIL OFL 1.1; custom fonts must contain the Vietnamese glyphs. Display cues are independent of narration cues, limited to two lines, with long text split without dropping words. Reading-speed warnings do not silently rewrite translations.
+
+Headless review of an imported subtitle:
+
+```bash
+subreplace-batch --overlay-manifest /output/batch.json --overlay-prepare \
+  --source /input/video.mp4 --project /output/project --subtitle /input/vi.srt \
+  --output /output/vi.mp4 --no-dub
+# Inspect the five PNGs and the printed revision before approval.
+subreplace-batch --overlay-manifest /output/batch.json --overlay-approve 3
+subreplace-batch --overlay-manifest /output/batch.json --overlay-render
+```
+
+Use the actual printed revision, not the example `3`. Add `--accept-fallback` only after inspecting a reported fallback. `--overlay-y 1050` changes Y and regenerates preview. A manifest without an action lists its sources/revisions. See [acceptance checklist](docs/testing/overlay-acceptance.md).
 
 ## Vietnamese Dubbing
 
@@ -106,4 +135,4 @@ python -m pytest -q
 
 API keys can be stored through the operating-system keyring and are not written to project files. Models, project caches, videos, virtual environments, and release artifacts are excluded from Git.
 
-Version 0.3.2 packages the latest batch retry and stable subtitle-position fixes with a one-click Windows bootstrap installer.
+Version 0.4.0 adds reviewed, fixed-position Vietnamese overlays while retaining the multi-video translation and merge workflow.

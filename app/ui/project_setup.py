@@ -124,6 +124,13 @@ if PYSIDE6_AVAILABLE:
             self.erase_subtitles.setChecked(False)
             self.erase_subtitles.toggled.connect(self._set_erase_visible)
             layout.addRow(self.erase_subtitles)
+            self.locked_overlay = QCheckBox('Phụ đề Việt xếp dưới — khóa vị trí và duyệt trước khi xuất')
+            self.locked_overlay.setChecked(True)
+            layout.addRow(self.locked_overlay)
+            self.erase_subtitles.toggled.connect(lambda checked: self.locked_overlay.setEnabled(not checked))
+            self.subtitle_input = QLineEdit()
+            self.subtitle_input.setPlaceholderText('Tùy chọn: file SRT/ASS, hoặc thư mục phụ đề cùng tên video; bỏ trống để dịch như cũ')
+            layout.addRow('Phụ đề Việt có sẵn', self.subtitle_input)
 
             self.temporal_provider = QComboBox()
             for label, value in (("Classical only", "classical"), ("ProPainter", "propainter"), ("E2FGVI", "e2fgvi")):

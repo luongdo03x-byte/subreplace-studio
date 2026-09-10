@@ -6,14 +6,22 @@ import numpy as np
 
 from app.core.detection.protocol import TextCandidate
 from app.providers.errors import ProviderUnavailableError
-from app.providers.ocr.paddle_common import create_chinese_paddle_ocr
+from app.providers.ocr.paddle_common import create_chinese_paddle_ocr, _cpu_runtime_kwargs
 
 
 class PaddleTextDetector:
-    def __init__(self, engine: Any | None = None) -> None:
+    def __init__(self, engine: Any | None = None, *, detection_only: bool = False) -> None:
         if engine is not None:
             self.engine = engine
             return
+        if detection_only:
+            try:
+                from paddleocr import TextDetection
+            except ImportError:
+                pass  # Older supported versions use the existing OCR adapter.
+            else:
+                self.engine = TextDetection(**_cpu_runtime_kwargs())
+                return
         try:
             from paddleocr import PaddleOCR
         except ImportError as exc:
@@ -38,8 +46,19 @@ class PaddleTextDetector:
                 result = value() if callable(value) else value
             if not isinstance(result, dict):
                 continue
-            polys = result.get("dt_polys") or result.get("rec_polys") or []
-            scores = result.get("dt_scores") or result.get("rec_scores") or [1.0] * len(polys)
+            result = result.get('res', result)
+            if not isinstance(result, dict):
+                continue
+            polys = result.get('dt_polys')
+            if polys is None:
+                polys = result.get('rec_polys')
+            if polys is None:
+                polys = []
+            scores = result.get('dt_scores')
+            if scores is None:
+                scores = result.get('rec_scores')
+            if scores is None:
+                scores = [1.0] * len(polys)
             for index, poly in enumerate(polys):
                 score = float(scores[index]) if index < len(scores) else 1.0
                 items.append((poly, score))

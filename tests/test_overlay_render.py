@@ -37,3 +37,19 @@ def test_preview_one_and_two_lines_same_top_and_original_region(tmp_path):
     sampled = list(sample_frames(video))
     assert len(sampled) == 20
     assert len({f.index for f in sampled}) == 20
+    assert len(list(sample_frames(video, count=1))) == 1
+
+
+def test_compositor_preserves_detailed_original_pixels(tmp_path):
+    video = tmp_path/'pattern.mp4'
+    subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','testsrc2=s=640x360:r=10:d=1',
+                    '-c:v','libx264','-threads','1',str(video)], check=True)
+    baseline = tmp_path/'original.png'
+    subprocess.run(['ffmpeg','-v','error','-y','-i',str(video),'-ss','0.5','-frames:v','1',
+                    '-threads','1',str(baseline)], check=True)
+    layout = LockedLayout(375, 110, False, 300)
+    profile = RenderProfile(640,470,10,1,'copy')
+    ass = write_overlay_ass(tmp_path/'vi.ass', (DisplayCue('a',0,1000,('ệ ợ ữ ậ ỗ ằ',)),),
+                            replace(default_style(),font_size=28), layout, profile)
+    rendered = render_preview(video,500,ass,profile,tmp_path/'overlay.png')
+    assert np.array_equal(cv2.imread(str(baseline)), cv2.imread(str(rendered))[:360])

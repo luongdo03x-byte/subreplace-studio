@@ -14,6 +14,7 @@ def default_style():
 class FontMetrics:
     def __init__(self, style):
         from PySide6.QtGui import QGuiApplication, QFontDatabase, QFont, QFontMetricsF
+        from PySide6.QtWidgets import QApplication
         global _application
         if not style.font_path.is_file():
             raise ValueError(f'Không tìm thấy font: {style.font_path}')
@@ -21,7 +22,7 @@ class FontMetrics:
             raise ValueError('Invalid subtitle style dimensions')
         if QGuiApplication.instance() is None:
             os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-            _application = QGuiApplication([])
+            _application = QApplication([])
         font_id = QFontDatabase.addApplicationFont(str(style.font_path))
         families = QFontDatabase.applicationFontFamilies(font_id)
         if style.font_name not in families:

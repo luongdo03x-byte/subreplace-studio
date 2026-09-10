@@ -12,6 +12,12 @@
 
 ## Global Constraints
 
+### Execution checkpoint — 2026-09-10
+
+Tasks 1–9 have implementation and automated coverage in the isolated `feat/fixed-subtitles` checkout. Orchestration is in `overlay_service.py` and `overlay_batch.py`; metadata is emitted by the service, leaving legacy export intact. End-to-end fixtures live in `test_overlay_batch.py`, `test_overlay_service.py`, and `test_overlay_concat.py` rather than a separate end-to-end file. CLI, desktop review, bundled font, release version and launch instructions are implemented. Original step checkboxes below remain the historical plan, not a claim that every manual check ran.
+
+Task 10 remains partially open: automated suite and wheel packaging are checked separately; the required ten-full-video acceptance and Windows runtime smoke test have not run. A real four-second excerpt generated five previews but exposed conservative detector false positives and slow CPU checking; see `docs/testing/overlay-acceptance.md`. Existing installed app/launcher have not been replaced. Independent review was unavailable, so no independent-review approval is claimed.
+
 - Mỗi video nguồn có một Y riêng, cố định tuyệt đối trong nguồn đó. Y được phép khác khi chuyển nguồn trong video gộp.
 - Không xóa, làm mờ, che hoặc crop chữ Trung. Sai khác pixel do mã hóa mất dữ liệu CRF 18–20 được chấp nhận.
 - Dò thấy chồng chữ thì chặn nguồn đó, báo timestamp để người dùng chỉnh. Không tự thay Y theo câu, cảnh hoặc khung hình.
