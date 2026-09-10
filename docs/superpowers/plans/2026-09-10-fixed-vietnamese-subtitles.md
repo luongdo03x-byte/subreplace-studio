@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+**Superseding user-approved change (2026-09-10):** For the user's fixed-band sources, remove the full-source collision pass in Task 6 from the active preparation/preview flow. Sample up to 300 distinct frames once, cache the band, lock Y, generate five previews, and require approval before export. Manual Y/style changes regenerate previews without detection. Historical collision requirements below no longer apply to this flow; rare position changes require human review. Keep the old standalone collision utility isolated, not called by the service.
+
 ### Execution checkpoint — 2026-09-10
 
 Tasks 1–9 have implementation and automated coverage in the isolated `feat/fixed-subtitles` checkout. Orchestration is in `overlay_service.py` and `overlay_batch.py`; metadata is emitted by the service, leaving legacy export intact. End-to-end fixtures live in `test_overlay_batch.py`, `test_overlay_service.py`, and `test_overlay_concat.py` rather than a separate end-to-end file. CLI, desktop review, bundled font, release version and launch instructions are implemented. Original step checkboxes below remain the historical plan, not a claim that every manual check ran.

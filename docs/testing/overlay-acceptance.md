@@ -1,5 +1,11 @@
 # Fixed-overlay validation — 0.4.0
 
+## Approved sampling-only change — 2026-09-10
+
+The user confirmed that subtitle position is fixed in their sources and approved removing the second, full-frame collision-detection pass. Current flow: up to 300 distinct samples → persist band and locked Y → five PNGs → explicit approval → render/merge. Y/style edits reuse the stored band without inference. The preview policy marker forces legacy previews (including collision-blocked ones) to regenerate on preparation/retry without overwriting the source or translation. Historical collision-check observations below describe the previous implementation, not a current release guarantee. Rare subtitle-position changes outside the sampled frames are no longer automatically checked. Sampling still decodes frames; this change removes the additional full-frame inference cost, not all video I/O.
+
+Verification after this change: 264 tests passed, one optional ccache warning, in 28.27 seconds. Both new regression tests failed before implementation: preview attempted a second detector pass, and legacy collision-blocked previews were reused. Both pass after the change. Wheel rebuilt successfully. No running user job was interrupted or automatically approved.
+
 ## Automated evidence
 
 Latest verification on 2026-09-10: **262 passed**, one optional Paddle ccache warning, 14.70 seconds. Wheel `subreplace_studio-0.4.0-py3-none-any.whl` built successfully; required font/license and new service/UI modules were verified inside it. Shell syntax checks and `git diff --check` passed. The rotation integration fixture uses FFmpeg's explicit display-rotation option because this machine's FFmpeg did not persist the older `rotate` metadata command.

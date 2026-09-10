@@ -53,7 +53,9 @@ Select/reorder videos and optionally enable merging as before. Leave **Phụ đ�
 
 The app samples up to 300 distinct frames, detects persistent centered subtitle blocks in the bottom 40%, and locks the P95 lower boundary plus 0.8% source height. Insufficient room adds bottom padding. Each source retains its own Y, including inside the merged output.
 
-In **Duyệt phụ đề Việt**, inspect five timestamped PNGs, adjust Y/style as needed, then approve individual sources or eligible sources together. Fallback positions require an explicit checkbox confirmation. Edits invalidate previous approval. Detected collisions block export and show timestamps; rare collisions never cause automatic per-scene repositioning. Text detection is imperfect: preview and real-video QA remain necessary.
+In **Duyệt phụ đề Việt**, inspect five timestamped PNGs, adjust Y/style as needed, then approve individual sources or eligible sources together. Fallback positions require an explicit checkbox confirmation. Edits invalidate previous approval. Placement is computed once from up to 300 distinct sampled frames per source and cached in SQLite. There is no second full-frame text-detection pass; Y/style edits only regenerate previews using the cached band. Sampling still decodes the video and can take time, but text inference is limited to the samples. Rare changes in original subtitle position are not automatically checked: review the previews and use sources whose subtitle band stays fixed.
+
+After updating, stop any old running job and restart the app using `run-phase1-linux.sh`. Reopen the saved batch and choose **Chuẩn bị lại / Retry** to reuse completed translation/dubbing and cached band data; old collision-blocked previews will be regenerated and require approval again.
 
 **Mở lại lô** opens the durable `batch.json` under the output directory's `.subreplace-batches/<batch-id>/`. Keep its adjacent SQLite database and artifacts together. Retry retains source-specific style/Y and verified completed outputs. The legacy mode retains its historical erase/retry/merge behavior when explicitly selected.
 

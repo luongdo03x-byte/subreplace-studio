@@ -9,12 +9,13 @@ import uuid
 
 from app.core.subtitle_overlay.band import BandResult, DETECTOR_VERSION, detect_band
 from app.core.subtitle_overlay.captions import segment_cues
-from app.core.subtitle_overlay.collision import check_collisions
 from app.core.subtitle_overlay.layout import batch_profile, lock_layout
 from app.core.subtitle_overlay.models import Cue, DisplayCue, LockedLayout, OverlayStyle, RenderProfile
 from app.core.subtitle_overlay.render import write_overlay_ass, render_preview, render_video
-from app.core.subtitle_overlay.sampling import probe_video, sample_frames, iter_frames
+from app.core.subtitle_overlay.sampling import probe_video, sample_frames
 from app.core.subtitle_overlay.typography import FontMetrics
+
+PREVIEW_POLICY = 'sample-only-v1'
 
 
 def fingerprint(path):
@@ -45,11 +46,10 @@ class OverlayService:
         return self._detector
 
     def _frames(self, frames):
-        for frame in frames:
+        for count, frame in enumerate(frames, 1):
             if self.cancel_event.is_set():
                 raise ValueError('Đã dừng xử lý phụ đề')
-            if frame.index % 300 == 0:
-                self.on_progress(f'Kiểm tra khung {frame.index}, {frame.timestamp_ms/1000:.1f}s')
+            self.on_progress(f'Dò mẫu {count}/300 — vị trí {frame.timestamp_ms/1000:.1f}s')
             yield frame
 
     @staticmethod
@@ -85,7 +85,7 @@ class OverlayService:
         return self.store.save(source_id, {**inputs, 'info': info, 'band': asdict(band),
             'layout': asdict(layout), 'line_height': metrics.line_height,
             'display': [asdict(c) for c in display], 'warnings': list(warnings)+list(band.warnings),
-            'blocking': ['Chưa tạo preview và kiểm tra toàn video.'], 'previews': []})
+            'blocking': ['Chưa tạo ảnh xem trước.'], 'previews': []})
 
     def finalize_batch(self, batch_id, source_ids, *, merge=True):
         rows = [self.store.load(source_id) for source_id in source_ids]
@@ -100,10 +100,11 @@ class OverlayService:
                 ((payload['info']['width'], payload['info']['height'], LockedLayout(**payload['layout'])),),
                 Fraction(payload['info']['fps_num'], payload['info']['fps_den']), False)
             if (payload.get('profile') == asdict(local_profile) and payload.get('checked')
+                    and payload.get('preview_policy') == PREVIEW_POLICY
                     and len(payload.get('previews', [])) == 5 and self._artifacts_valid(payload)):
                 continue
             payload.update(profile=asdict(local_profile), batch_id=batch_id, checked=False,
-                           blocking=['Đang kiểm tra và tạo preview.'], previews=[])
+                           blocking=['Đang tạo 5 ảnh xem trước.'], previews=[])
             self.store.save(row['id'], payload)  # Revoke old approval before expensive work.
             try:
                 payload = self._preview(row['id'], payload)
@@ -124,18 +125,17 @@ class OverlayService:
         artifacts = self.store.path.parent / 'overlay-artifacts' / hashlib.sha256(source_id.encode()).hexdigest()[:16] / uuid.uuid4().hex
         artifacts.mkdir(parents=True)
         ass = write_overlay_ass(artifacts/'vi.ass', cues, style, layout, profile)
-        report = check_collisions(self._frames(iter_frames(video)), self.detector, cues, layout,
-                                  payload['line_height'], payload['info']['width'], self.cancel_event)
-        collision_path = artifacts/'collisions.json'
-        _write_json(collision_path, asdict(report))
-        blocking = []
-        if not report.complete:
-            blocking.append('Kiểm tra toàn video chưa hoàn tất.')
-        if report.collisions:
-            blocking.append(f'Phát hiện chồng chữ ở {len(report.collisions)} khung; chỉnh Y rồi xem lại.')
+        # Placement is determined once from the sampled band. Preview and manual
+        # edits must never trigger another detector pass over the source.
+        payload = dict(payload)
+        payload.pop('collision_report', None)
+        payload.pop('collision_times', None)
         previews = []
         duration = payload['info']['duration_ms']
         for i in range(5):
+            if self.cancel_event.is_set():
+                raise ValueError('Đã dừng tạo ảnh xem trước')
+            self.on_progress(f'Tạo ảnh xem trước {i+1}/5')
             left, right = duration*i/5, duration*(i+1)/5
             available = [c for c in cues if c.start_ms < right and c.end_ms > left]
             sample_text = not available
@@ -150,9 +150,9 @@ class OverlayService:
             image = render_preview(video, timestamp, preview_ass, profile, artifacts/f'{i+1}.png', self.cancel_event)
             previews.append({'path': str(image), 'timestamp_ms': timestamp, 'sample_text': sample_text,
                              'hash': fingerprint(image)})
-        return {**payload, 'blocking': blocking, 'checked': report.complete, 'previews': previews,
-                'ass': str(ass), 'ass_hash': fingerprint(ass), 'collision_report': str(collision_path),
-                'collision_times': [c.timestamp_ms for c in report.collisions[:100]],
+        return {**payload, 'blocking': [], 'checked': True, 'previews': previews,
+                'preview_policy': PREVIEW_POLICY,
+                'ass': str(ass), 'ass_hash': fingerprint(ass),
                 'render_font': str(ass.parent/'fonts'/style.font_path.name),
                 'render_font_hash': fingerprint(style.font_path)}
 
