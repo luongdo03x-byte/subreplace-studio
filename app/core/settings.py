@@ -7,15 +7,15 @@ from pathlib import Path
 
 
 def app_data_root() -> Path:
-    configured = os.environ.get("SUBREPLACE_APP_DATA", "").strip()
+    configured = os.environ.get("SUBREPLACE_NEXT_APP_DATA", "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA")
-        return (Path(base) if base else Path.home() / "AppData" / "Local") / "SubReplaceStudio"
+        return (Path(base) if base else Path.home() / "AppData" / "Local") / "SubReplaceStudioNext"
     xdg = os.environ.get("XDG_DATA_HOME", "").strip()
     base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
-    return base / "subreplace-studio"
+    return base / "subreplace-studio-next"
 
 
 @dataclass(frozen=True, slots=True)

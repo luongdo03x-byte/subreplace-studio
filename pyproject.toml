@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "subreplace-studio"
-version = "0.3.1"
-description = "Local hard-subtitle replacement studio"
+name = "subreplace-studio-next"
+version = "0.1.0"
+description = "Next-generation subtitle replacement and publishing studio"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -26,14 +26,18 @@ cloud = [
   "openai>=1.0",
   "google-genai>=1.0",
 ]
+youtube = [
+  "google-api-python-client>=2.0",
+  "google-auth-oauthlib>=1.2",
+]
 dev = [
   "pytest>=8",
   "build>=1.2",
 ]
 
 [project.scripts]
-subreplace-batch = "app.cli:main"
-subreplace-studio = "app.main:run_app"
+subreplace-next-batch = "app.cli:main"
+subreplace-studio-next = "app.main:run_app"
 
 [tool.setuptools.packages.find]
 include = ["app*"]

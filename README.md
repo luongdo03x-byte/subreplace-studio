@@ -1,4 +1,12 @@
-# SubReplace Studio 0.3.1
+# SubReplace Studio Next 0.1.0
+
+This is an independently installed product variant. It uses the `subreplace-studio-next` executable,
+the `SUBREPLACE_NEXT_APP_DATA` override, `~/.local/share/subreplace-studio-next` on Linux, and a
+separate operating-system keyring namespace. It can run beside the stable SubReplace Studio app.
+
+The first Next phase adds a persistent SQLite Series/Episode library, filename-based episode parsing,
+missing/duplicate sequence diagnostics, final-video registration, YouTube desktop OAuth, resumable
+uploads, private scheduling, remote IDs, publication state, and an append-only audit trail.
 
 SubReplace Studio is a local Windows/Linux desktop pipeline for replacing burned-in Chinese dialogue subtitles with Vietnamese or English while preserving watermark pixels and reconstructing the original background.
 

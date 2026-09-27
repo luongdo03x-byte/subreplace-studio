@@ -13,6 +13,7 @@ if PYSIDE6_AVAILABLE:
         QStackedWidget, QVBoxLayout, QWidget,
     )
     from app.application.session import StudioSession
+    from app.application.library_service import LibraryService
     from app.application.batch import BatchController, BatchItem, BatchResult
     from app.application.subtitle_document import SubtitleDocumentService
     from app.application.export_service import ExportService
@@ -27,6 +28,8 @@ if PYSIDE6_AVAILABLE:
     from .processing_view import ProcessingView
     from .project_setup import ProjectSetupView
     from .subtitle_editor import SubtitleEditorView
+    from .series_library_view import SeriesLibraryView
+    from .youtube_view import YouTubePublishingView
 
     class _UiSignals(QObject):
         stage_event = Signal(object)
@@ -37,13 +40,14 @@ if PYSIDE6_AVAILABLE:
     class MainWindow(QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("SubReplace Studio")
+            self.setWindowTitle("SubReplace Studio Next")
             self.resize(1440, 900)
             self.session = StudioSession()
             self.view_model = StudioViewModel(session=self.session)
             self.model_manager_controller = ModelManagerController()
             self.subtitle_documents = SubtitleDocumentService()
             self.export_service = ExportService()
+            self.library_service = LibraryService()
             self.signals = _UiSignals()
             self.signals.stage_event.connect(self._on_stage_event)
             self.signals.batch_stage.connect(self._on_batch_stage)
@@ -59,7 +63,7 @@ if PYSIDE6_AVAILABLE:
             self._last_batch_result: BatchResult | None = None
 
             shell = QWidget(); root = QHBoxLayout(shell); sidebar = QVBoxLayout()
-            brand = QLabel("SUBREPLACE STUDIO"); brand.setObjectName("brand"); sidebar.addWidget(brand)
+            brand = QLabel("SUBREPLACE NEXT"); brand.setObjectName("brand"); sidebar.addWidget(brand)
             self.navigation = QListWidget(); self.stack = QStackedWidget()
             self.project_view = ProjectSetupView()
             self.processing_view = ProcessingView()
@@ -67,16 +71,19 @@ if PYSIDE6_AVAILABLE:
             self.subtitle_editor = SubtitleEditorView()
             self.model_manager_view = ModelManagerView(controller=self.model_manager_controller)
             self.diagnostics_view = DiagnosticsView()
+            self.series_library_view = SeriesLibraryView(self.library_service)
+            self.youtube_view = YouTubePublishingView(self.library_service)
+            self.series_library_view.library_changed.connect(self.youtube_view.refresh)
             pages = [
-                ("Project", self.project_view), ("Process", self.processing_view),
+                ("Series Library", self.series_library_view), ("Project", self.project_view), ("Process", self.processing_view),
                 ("Preview", self.preview_view), ("Subtitle Editor", self.subtitle_editor),
-                ("Model Manager", self.model_manager_view), ("Diagnostics", self.diagnostics_view),
+                ("YouTube", self.youtube_view), ("Model Manager", self.model_manager_view), ("Diagnostics", self.diagnostics_view),
             ]
             for name, widget in pages:
                 self.navigation.addItem(name); self.stack.addWidget(widget)
             self.navigation.currentRowChanged.connect(self.stack.setCurrentIndex); self.navigation.setCurrentRow(0)
             sidebar.addWidget(self.navigation, 1)
-            needs_review = QPushButton("Needs Review"); needs_review.clicked.connect(lambda: self.navigation.setCurrentRow(3)); sidebar.addWidget(needs_review)
+            needs_review = QPushButton("Needs Review"); needs_review.clicked.connect(lambda: self.navigation.setCurrentRow(4)); sidebar.addWidget(needs_review)
             export = QPushButton("Export"); export.clicked.connect(self._show_export); sidebar.addWidget(export)
             side = QWidget(); side.setLayout(sidebar); side.setFixedWidth(220)
             root.addWidget(side); root.addWidget(self.stack, 1); self.setCentralWidget(shell)
@@ -164,7 +171,7 @@ if PYSIDE6_AVAILABLE:
             )
             self.processing_view.cancel_button.setEnabled(True)
             self.processing_view.retry_button.setEnabled(False)
-            self.navigation.setCurrentRow(1)
+            self.navigation.setCurrentRow(2)
             self.processing_view.job_status.setText(f"Hàng đợi: 0/{len(items)} video")
             self._batch_thread.start()
 
