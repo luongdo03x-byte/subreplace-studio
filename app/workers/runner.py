@@ -31,7 +31,9 @@ from app.providers.translation.custom import CustomAPITranslationProvider
 from app.providers.translation.local import LocalCommandTranslationProvider
 from app.core.dubbing.decode import PcmCodec
 from app.core.dubbing.protocol import SpeechSynthesisError
-from app.core.dubbing.timing import fit_tempo
+from app.core.dubbing.timing import fit_tempo, trim_speech_padding
+from app.core.translation.protocol import TranslationRequest
+from app.core.translation.alignment import align_to_speech
 from app.core.dubbing.track import TrackSegment, build_track, write_wav
 from app.core.dubbing.voice import choose_gender, estimate_f0, read_slice
 from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE, EdgeTTSProvider
@@ -197,6 +199,11 @@ def _run_translate_events(command: WorkerCommand, dependencies: dict[str, Any]) 
             text_type=TextType.DIALOGUE_SUBTITLE, review_status=ReviewStatus.AUTO,
             anchor=_anchor_from_bbox([int(v) for v in (item.get("anchor_bbox") or item.get("bbox") or [0, 0, 0, 0])]),
         ))
+    if config.get("asr_path"):
+        speech_path = _project_path(command, "asr_path")
+        if speech_path.is_file():
+            speech = json.loads(speech_path.read_text(encoding="utf-8"))
+            segments = align_to_speech(segments, speech, duration_ms=int(media.get("duration_ms", 0)))
     provider = dependencies.get("translation_provider") or _build_translation_provider(config)
     glossary: dict[str, str] = {}
     glossary_path = config.get("glossary_path")
@@ -266,17 +273,39 @@ def _run_synthesize_speech(command: WorkerCommand, dependencies: dict[str, Any])
         planned.append({
             "id": str(item.get("id") or f"segment-{index + 1}"),
             "text": text, "start_ms": start_ms, "end_ms": end_ms,
+            "source_text": str(item.get("source_text") or text),
+            "original_end_ms": int(item.get("original_end_ms", end_ms)),
             "f0_hz": round(f0, 1), "gender": gender, "voice": voices[gender],
         })
+
+    planned.sort(key=lambda entry: entry["start_ms"])
+    for index, entry in enumerate(planned):
+        next_start = planned[index + 1]["start_ms"] if index + 1 < len(planned) else total_ms
+        entry["available_end_ms"] = min(total_ms, next_start, entry["original_end_ms"] + 1000)
 
     def speak(entry: dict[str, Any]) -> dict[str, Any]:
         record = dict(entry)
         try:
             audio = synthesizer.synthesize(entry["text"], voice=entry["voice"], rate=rate)
-            natural = codec.decode(audio, sample_rate=sample_rate)
+            natural = trim_speech_padding(codec.decode(audio, sample_rate=sample_rate), sample_rate)
             natural_ms = max(1, int(round(len(natural) * 1000 / sample_rate)))
-            window_ms = entry["end_ms"] - entry["start_ms"]
-            tempo = fit_tempo(natural_ms, window_ms)
+            window_ms = entry["available_end_ms"] - entry["start_ms"]
+            if window_ms <= 0:
+                raise ValueError("No time available for speech")
+            if natural_ms > window_ms * 2 and (config.get("translation_config") or dependencies.get("translation_provider")):
+                provider = dependencies.get("translation_provider") or _build_translation_provider(dict(config["translation_config"]))
+                request = TranslationRequest(entry["id"], entry["source_text"], "", "", duration_ms=window_ms,
+                                             max_chars=max(1, int(len(entry["text"]) * window_ms / natural_ms)))
+                translated = provider.translate_batch([request], str(config.get("target_language") or "vi"), {})
+                TranslationService._validate_results([request], translated)
+                record["text"] = translated[0].optimized.strip()
+                audio = synthesizer.synthesize(record["text"], voice=entry["voice"], rate=rate)
+                natural = trim_speech_padding(codec.decode(audio, sample_rate=sample_rate), sample_rate)
+                natural_ms = max(1, int(round(len(natural) * 1000 / sample_rate)))
+            tempo = max(1.0, fit_tempo(natural_ms, window_ms))
+            if tempo > 2.0:
+                raise ValueError("Speech exceeds available timing even at twice normal speed")
+            record["end_ms"] = min(entry["available_end_ms"], max(entry["original_end_ms"], entry["start_ms"] + round(natural_ms / tempo)))
             record["tempo"] = round(tempo, 3)
             record["rushed"] = tempo > rushed_tempo
             record["failed"] = False
@@ -302,11 +331,22 @@ def _run_synthesize_speech(command: WorkerCommand, dependencies: dict[str, Any])
         TrackSegment(start_ms=item["start_ms"], end_ms=item["end_ms"], samples=item["samples"])
         for item in results if item["samples"] is not None
     ]
+    by_id = {item["id"]: item for item in results}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        result = by_id.get(str(item.get("id")))
+        if result is not None and not result["failed"]:
+            item.setdefault("original_end_ms", item["end_ms"])
+            item["end_ms"] = result["end_ms"]
+            item["target_text"] = result["text"]
+            item["optimized_translation"] = result["text"]
+    _write_json(translated_path, raw)
     track = build_track(segments, total_ms=total_ms, sample_rate=sample_rate)
     write_wav(output_path, track, sample_rate=sample_rate)
 
     report_segments = [
-        {key: item[key] for key in ("id", "voice", "f0_hz", "tempo", "rushed", "failed")}
+        {key: item[key] for key in ("id", "voice", "f0_hz", "tempo", "rushed", "failed", "end_ms")}
         for item in results
     ]
     rushed_count = sum(1 for item in report_segments if item["rushed"])
@@ -337,7 +377,8 @@ def _run_render_final(command: WorkerCommand, dependencies: dict[str, Any]) -> t
     translated_path = _project_path(command, "translated_path")
     output_path = _project_path(command, "output_path")
     srt_path = _project_path(command, "srt_path")
-    placement = SubtitlePlacement(str(config.get("subtitle_placement") or "below_anchor"))
+    placement = SubtitlePlacement(str(config.get("subtitle_placement") or "on_anchor"))
+    apply_blur = bool(config.get("apply_blur", True))
     dub_audio_path = _project_path(command, "dub_audio_path") if config.get("dub_audio_path") else None
     duck_ratio = int(config.get("duck_ratio", 12))
     report_path = _project_path(command, "report_path") if config.get("report_path") else None
@@ -364,6 +405,7 @@ def _run_render_final(command: WorkerCommand, dependencies: dict[str, Any]) -> t
         video=video_path, segments=segments, style=style,
         output_path=output_path, srt_path=srt_path,
         placement=placement, dub_audio_path=dub_audio_path, duck_ratio=duck_ratio,
+        apply_blur=apply_blur,
     )
     report = dict(result.placement_report)
     if report_path is not None:

@@ -97,7 +97,7 @@ class StudioViewModel:
         elif provider == "gemini":
             required.append(("google.genai", "google-genai is required for the selected translation provider"))
         if request.dub_enabled:
-            required.append(("edge_tts", "edge-tts is required for Vietnamese dubbing"))
+            required.append(("edge_tts", "edge-tts is required for dubbing"))
         checks = []
         for module, message in required:
             available = bool(self.module_probe(module))
@@ -156,8 +156,8 @@ class StudioViewModel:
     def _dub_config(self, request: ProjectStartRequest) -> dict[str, object] | None:
         if not request.dub_enabled:
             return None
-        female = request.dub_voice_female.strip()
-        male = request.dub_voice_male.strip()
+        from app.core.dubbing.languages import resolve_voices
+        female, male = resolve_voices(request.target_language, request.dub_voice_female, request.dub_voice_male)
         if not female or not male:
             raise ValueError("dubbing requires both a female and a male voice id")
         if request.dub_default_gender not in {"female", "male"}:

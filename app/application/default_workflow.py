@@ -61,7 +61,7 @@ def build_full_commands(
 ) -> tuple[WorkerCommand, ...]:
     root = project.root.resolve()
     core = list(build_core_commands(project, has_audio=has_audio))
-    overlay_prepare = bool(project.settings.get('overlay_prepare_only'))
+    overlay_prepare = bool(project.settings.get("overlay_prepare_only"))
     if overlay_prepare:
         erase_enabled = False
     media = root / "cache" / "frames" / "media.json"
@@ -91,6 +91,7 @@ def build_full_commands(
     translate_config: dict[str, object] = {
         "classified_path": str(classified),
         "media_path": str(media),
+        **({"asr_path": str(root / "cache" / "asr" / "segments.json")} if has_audio else {}),
         "output_path": str(translated),
         "target_language": project.target_language,
         **translation_config,
@@ -110,6 +111,8 @@ def build_full_commands(
             "media_path": str(media),
             "output_path": str(dub_track),
             "report_path": str(dub_report),
+            "translation_config": dict(translation_config),
+            "target_language": project.target_language,
             **synth_dub_config,
         }))
 
@@ -122,8 +125,9 @@ def build_full_commands(
         "srt_path": str(srt),
         "report_path": str(render_report),
         "target_language": project.target_language,
-        # Keeping the Chinese text means the translation must sit below it.
-        "subtitle_placement": "on_anchor" if erase_enabled else "below_anchor",
+        # Chinese text is covered with a blur band when not erased, translation sits on anchor.
+        "subtitle_placement": "on_anchor",
+        "apply_blur": not erase_enabled,
     }
     if dubbing:
         render_config["dub_audio_path"] = str(dub_track)

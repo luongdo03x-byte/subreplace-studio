@@ -53,8 +53,10 @@ def test_placement_is_derived_from_the_erase_setting(tmp_path):
     project = _project(tmp_path)
     off = build_full_commands(project, translation_config=TRANSLATION)
     on = build_full_commands(project, translation_config=TRANSLATION, erase_enabled=True)
-    assert _config(off, "render_final")["subtitle_placement"] == "below_anchor"
+    assert _config(off, "render_final")["subtitle_placement"] == "on_anchor"
+    assert _config(off, "render_final")["apply_blur"] is True
     assert _config(on, "render_final")["subtitle_placement"] == "on_anchor"
+    assert _config(on, "render_final")["apply_blur"] is False
 
 
 def test_synthesis_runs_between_translation_and_render(tmp_path):

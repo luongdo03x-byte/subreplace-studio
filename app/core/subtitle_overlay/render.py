@@ -47,8 +47,38 @@ def _escape(path):
     return str(Path(path).resolve()).replace('\\', '/').replace(':', r'\:').replace("'", r"'\''")
 
 
+def _extract_y_from_ass(ass_path):
+    try:
+        content = Path(ass_path).read_text(encoding='utf-8')
+        for line in content.splitlines():
+            if line.startswith('Style: VI'):
+                parts = line.split(',')
+                if len(parts) >= 22:
+                    return int(parts[21])
+    except Exception:
+        pass
+    return None
+
+
 def overlay_filter(ass, profile):
-    return (f'pad={profile.width}:{profile.height}:trunc((ow-iw)/4)*2:0:black,'
+    base = f'pad={profile.width}:{profile.height}:trunc((ow-iw)/4)*2:0:black'
+    y = _extract_y_from_ass(ass)
+    if y is not None and profile.height > 60:
+        w = max(2, min(profile.width, (int(round(profile.width * 0.92)) // 2) * 2))
+        x = max(0, min(profile.width - w, (int(round((profile.width - w) / 2)) // 2) * 2))
+        h = max(20, min(profile.height, max(60, (int(round(profile.height * 0.095)) // 2) * 2)))
+        y_box = max(0, min(profile.height - h, y - 10))
+        y_box = (y_box // 2) * 2
+        luma_r = max(1, min(20, h // 4))
+        chroma_r = max(1, min(10, h // 8))
+        blur_filter = f'boxblur=luma_radius={luma_r}:luma_power=3:chroma_radius={chroma_r}:chroma_power=2'
+        return (
+            f'{base},split[v_base][v_crop];'
+            f'[v_crop]crop={w}:{h}:{x}:{y_box},{blur_filter}[v_blur];'
+            f'[v_base][v_blur]overlay={x}:{y_box},'
+            f"ass=filename='{_escape(ass)}':fontsdir='{_escape(Path(ass).parent / 'fonts')}'"
+        )
+    return (f'{base},'
             f"ass=filename='{_escape(ass)}':fontsdir='{_escape(Path(ass).parent / 'fonts')}'")
 
 

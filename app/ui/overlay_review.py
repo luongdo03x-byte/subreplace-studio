@@ -1,11 +1,13 @@
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal
+import time
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QSpinBox, QCheckBox, QScrollArea, QLineEdit, QFormLayout, QFileDialog)
+    QPushButton, QSpinBox, QCheckBox, QScrollArea, QLineEdit, QFormLayout, QFileDialog, QProgressBar)
 
 
 class OverlayReviewView(QWidget):
+    cancel_requested = Signal()
     approve_requested = Signal(str, int, bool)
     approve_many_requested = Signal(object, bool)
     y_changed = Signal(str, int)
@@ -13,15 +15,31 @@ class OverlayReviewView(QWidget):
     render_requested = Signal()
     resume_requested = Signal()
     retry_requested = Signal()
+    dubbing_changed = Signal(str, bool)
+    save_y_default_requested = Signal(str, int)
+    clear_y_default_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.rows = []
         root = QVBoxLayout(self)
-        root.addWidget(QLabel('Phụ đề Việt — duyệt vị trí cố định theo từng video nguồn'))
+        root.addWidget(QLabel('Phụ đề dịch — duyệt vị trí cố định theo từng video nguồn'))
         self.status = QLabel('Chọn nhiều video ở Project, hoặc mở lại lô đã lưu.')
         self.status.setWordWrap(True)
         root.addWidget(self.status)
+        self.progress = QProgressBar()
+        self.progress.hide()
+        self.elapsed = QLabel()
+        self.cancel_button = QPushButton('Dừng xử lý')
+        self.cancel_button.hide()
+        self.cancel_button.clicked.connect(self.cancel_requested.emit)
+        root.addWidget(self.progress)
+        root.addWidget(self.elapsed)
+        root.addWidget(self.cancel_button)
+        self.timer = QTimer(self)
+        self.timer.setInterval(1000)
+        self.timer.timeout.connect(self._tick)
+        self._busy_controls = []
         top = QHBoxLayout()
         self.sources = QListWidget()
         self.sources.setMaximumHeight(150)
@@ -29,6 +47,11 @@ class OverlayReviewView(QWidget):
         self.y = QSpinBox(); self.y.setRange(0, 32000)
         self.apply_y = QPushButton('Áp dụng Y và tạo lại preview')
         controls = QVBoxLayout(); controls.addWidget(QLabel('Y tính từ đỉnh khung')); controls.addWidget(self.y); controls.addWidget(self.apply_y)
+        self.save_y_default = QPushButton('Lưu Y cho video sau')
+        self.clear_y_default = QPushButton('Dò Y tự động cho video sau')
+        controls.addWidget(self.save_y_default); controls.addWidget(self.clear_y_default)
+        self.save_y_default.clicked.connect(self._save_y_default)
+        self.clear_y_default.clicked.connect(self.clear_y_default_requested.emit)
         top.addLayout(controls); root.addLayout(top)
         self.images = QHBoxLayout()
         image_widget = QWidget(); image_widget.setLayout(self.images)
@@ -36,6 +59,12 @@ class OverlayReviewView(QWidget):
         root.addWidget(scroll, 1)
         self.warning_list = QListWidget(); self.warning_list.setMaximumHeight(100)
         root.addWidget(self.warning_list)
+        audio_row = QHBoxLayout()
+        self.dub_enabled = QCheckBox('Lồng tiếng theo ngôn ngữ đích (giảm giọng gốc khi đọc)')
+        self.apply_dubbing = QPushButton('Áp dụng lồng tiếng và chuẩn bị lại')
+        audio_row.addWidget(self.dub_enabled); audio_row.addWidget(self.apply_dubbing)
+        root.addLayout(audio_row)
+        self.apply_dubbing.clicked.connect(self._dubbing)
         form = QFormLayout()
         self.font_path = QLineEdit(); self.font_name = QLineEdit()
         self.font_size = QSpinBox(); self.font_size.setRange(8, 300); self.font_size.setValue(48)
@@ -71,6 +100,37 @@ class OverlayReviewView(QWidget):
         self.style_button.clicked.connect(self._style)
         self._buttons()
 
+    def _tick(self):
+        seconds = int(time.monotonic() - self._started)
+        self.elapsed.setText(f'Đã chạy {seconds // 60:02d}:{seconds % 60:02d} — chưa có ước tính thời gian còn lại.')
+
+    def begin_work(self, message):
+        self.status.setText(message)
+        self._started = time.monotonic()
+        self.progress.setRange(0, 0)
+        self.progress.show()
+        self.cancel_button.setEnabled(True)
+        self.cancel_button.show()
+        self._busy_controls = [(w, w.isEnabled()) for w in self.findChildren(QWidget)
+                               if isinstance(w, (QPushButton, QSpinBox, QLineEdit, QCheckBox, QListWidget))
+                               and w is not self.cancel_button]
+        for widget, _ in self._busy_controls:
+            widget.setEnabled(False)
+        self._tick()
+        self.timer.start()
+
+    def end_work(self, message):
+        self.timer.stop()
+        self.progress.setRange(0, 1)
+        self.progress.setValue(1)
+        self.cancel_button.hide()
+        for widget, enabled in self._busy_controls:
+            widget.setEnabled(enabled)
+        self._busy_controls = []
+        seconds = int(time.monotonic() - self._started)
+        self.elapsed.setText(f'Thời gian xử lý: {seconds // 60:02d}:{seconds % 60:02d}')
+        self.status.setText(message)
+
     def show_sources(self, rows):
         index = max(0, self.sources.currentRow())
         self.rows = rows
@@ -95,6 +155,9 @@ class OverlayReviewView(QWidget):
         row = self._current()
         if row:
             payload = row['payload']
+            self.dub_enabled.setChecked(row.get('dub_enabled', bool(payload.get('dub_audio'))))
+            self.dub_enabled.setEnabled(not row.get('external_subtitle', False))
+            self.apply_dubbing.setEnabled(not row.get('external_subtitle', False))
             self.y.setValue(payload.get('layout', {}).get('y', 0))
             for preview in payload.get('previews', []):
                 column = QWidget(); box = QVBoxLayout(column)
@@ -132,7 +195,19 @@ class OverlayReviewView(QWidget):
         self.render_button.setEnabled(bool(self.rows) and all(not r['payload'].get('blocking')
             and r['approved'] == r['revision'] for r in self.rows))
         self.apply_y.setEnabled(bool(row and 'layout' in row['payload']))
+        self.save_y_default.setEnabled(bool(row and 'info' in row['payload'] and 'layout' in row['payload']))
         self.style_button.setEnabled(bool(row and 'style' in row['payload']))
+        self.apply_dubbing.setEnabled(bool(row and not row.get('external_subtitle', False)))
+
+    def _dubbing(self):
+        row = self._current()
+        if row:
+            self.dubbing_changed.emit(row['id'], self.dub_enabled.isChecked())
+
+    def _save_y_default(self):
+        row = self._current()
+        if row:
+            self.save_y_default_requested.emit(row['id'], self.y.value())
 
     def _approve(self):
         row = self._current()

@@ -41,7 +41,7 @@ class OverlayStyle:
     font_path: Path
     font_name: str = 'Be Vietnam Pro'
     font_size: int = 48
-    fill: str = '&H00FFFFFF'
+    fill: str = '&H0000FFFF'
     outline_color: str = '&H00000000'
     outline: int = 3
     shadow: int = 2

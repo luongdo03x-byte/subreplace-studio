@@ -19,7 +19,53 @@ class RenderError(RuntimeError):
     pass
 
 
-def build_filter_complex(*, ass_path: str, dubbed: bool, duck_ratio: int) -> str:
+def calculate_blur_box(
+    *,
+    frame_size: tuple[int, int],
+    anchor: tuple[int, int] | None = None,
+    style: SubtitleStyle,
+    width_ratio: float = 0.92,
+) -> tuple[int, int, int, int]:
+    """Calculate (x, y, w, h) for blurring the source subtitle band."""
+    width, height = frame_size
+    w = max(2, int(round(width * width_ratio)))
+    w = (w // 2) * 2
+    x = max(0, int(round((width - w) / 2)))
+    x = (x // 2) * 2
+
+    # Height covers dialogue lines plus padding
+    h = max(2, int(round(style.font_size * 2.4)))
+    h = (h // 2) * 2
+
+    if anchor is not None:
+        cx, cy = anchor
+        y = cy - h + int(round(style.font_size * 0.35))
+    else:
+        y = height - style.margin_bottom - h
+
+    y = max(0, min(height - h, y))
+    y = (y // 2) * 2
+    return (x, y, w, h)
+
+
+def build_video_filter(*, ass_path: str, blur_box: tuple[int, int, int, int] | None = None) -> str:
+    if blur_box is None:
+        return f"ass={ass_path}"
+    x, y, w, h = blur_box
+    return (
+        f"split[v_base][v_crop];"
+        f"[v_crop]crop={w}:{h}:{x}:{y},boxblur=25:5[v_blur];"
+        f"[v_base][v_blur]overlay={x}:{y},ass={ass_path}"
+    )
+
+
+def build_filter_complex(
+    *,
+    ass_path: str,
+    dubbed: bool,
+    duck_ratio: int,
+    blur_box: tuple[int, int, int, int] | None = None,
+) -> str:
     """Filtergraph that burns subtitles and, when dubbing, ducks the original audio.
 
     Returns "" when there is no dub track: that path keeps the historical
@@ -29,8 +75,18 @@ def build_filter_complex(*, ass_path: str, dubbed: bool, duck_ratio: int) -> str
         return ""
     if duck_ratio <= 0:
         raise ValueError("duck_ratio must be positive")
+
+    if blur_box is not None:
+        x, y, w, h = blur_box
+        video_chain = (
+            f"[0:v]split[v_base][v_crop];"
+            f"[v_crop]crop={w}:{h}:{x}:{y},boxblur=25:5[v_blur];"
+            f"[v_base][v_blur]overlay={x}:{y},ass={ass_path}[v];"
+        )
+    else:
+        video_chain = f"[0:v]ass={ass_path}[v];"
     return (
-        f"[0:v]ass={ass_path}[v];"
+        f"{video_chain}"
         "[0:a]aresample=48000[orig];"
         # apad keeps the dub input from ending sidechaincompress (and thus the
         # whole mix) early: without it, encoder padding that lets the audio
@@ -72,6 +128,7 @@ class SubtitleRenderer:
         placement: SubtitlePlacement,
         dub_audio_path: str | Path | None = None,
         duck_ratio: int = 12,
+        apply_blur: bool = True,
     ) -> RenderResult:
         source = Path(video)
         output = Path(output_path)
@@ -98,20 +155,33 @@ class SubtitleRenderer:
                 ass_path, segments, style,
                 frame_size=(metadata.width, metadata.height), placement=placement,
             )
+            fixed_anchor = tuple(placement_report["anchor"]) if placement_report.get("anchor") else None
+            blur_box = None
+            if apply_blur:
+                blur_box = calculate_blur_box(
+                    frame_size=(metadata.width, metadata.height),
+                    anchor=fixed_anchor,
+                    style=style,
+                )
+                placement_report["blur_box"] = list(blur_box)
+
             escaped = self._escape_filter_path(ass_path)
             command = [ffmpeg, "-y", "-i", str(source)]
             if dubbed:
                 command += ["-i", str(dub)]
                 command += [
                     "-filter_complex",
-                    build_filter_complex(ass_path=escaped, dubbed=True, duck_ratio=duck_ratio),
+                    build_filter_complex(
+                        ass_path=escaped, dubbed=True, duck_ratio=duck_ratio, blur_box=blur_box
+                    ),
                     "-map", "[v]", "-map", "[aout]",
                     "-c:v", "libx264", "-preset", "medium", "-crf", "18",
                     "-c:a", "aac", "-b:a", "192k",
                 ]
             else:
                 command += [
-                    "-vf", f"ass={escaped}",
+                    "-vf",
+                    build_video_filter(ass_path=escaped, blur_box=blur_box),
                     "-map", "0:v:0", "-map", "0:a?",
                     "-c:v", "libx264", "-preset", "medium", "-crf", "18",
                     "-c:a", "copy",

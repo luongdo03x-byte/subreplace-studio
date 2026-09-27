@@ -117,10 +117,113 @@ def test_report_records_tempo_and_flags_rushed_lines(tmp_path):
     by_id = {item["id"]: item for item in report["segments"]}
     assert by_id["a"]["tempo"] == 1.0
     assert by_id["a"]["rushed"] is False
-    # cau "b" chi co 500ms cho 1000ms giong -> tempo 2.0, vuot nguong 1.5
-    assert by_id["b"]["tempo"] == 2.0
-    assert by_id["b"]["rushed"] is True
-    assert report["rushed_count"] == 1
+    # Use the silent gap before the next sentence instead of doubling speed.
+    assert by_id["b"]["tempo"] == 1.0
+    assert by_id["b"]["rushed"] is False
+    assert by_id["b"]["end_ms"] == 2500
+    assert report["rushed_count"] == 0
+
+
+def test_impossible_timing_fails_instead_of_accelerating_or_truncating(tmp_path):
+    root = _project(tmp_path, SEGMENTS)
+    events = execute_command(_command(root), dependencies={
+        "speech_synthesizer": _FakeSynthesizer(), "pcm_codec": _FakeCodec(natural_ms=19000),
+    })
+    assert events[-1].type is WorkerEventType.FAILED
+    assert not (root / 'cache/dub/dub_vi.wav').exists()
+
+
+def test_timing_rescue_allows_speech_up_to_two_x_speed(tmp_path):
+    root = _project(tmp_path, [
+        {"id": "tight", "start_ms": 0, "end_ms": 600, "target_text": "Ibu Suri"},
+        {"id": "next", "start_ms": 600, "end_ms": 1200, "target_text": "Berikutnya"},
+    ])
+    events = execute_command(_command(root), dependencies={
+        "speech_synthesizer": _FakeSynthesizer(), "pcm_codec": _FakeCodec(natural_ms=1000),
+    })
+
+    assert events[-1].type is WorkerEventType.COMPLETED, events[-1].message
+    report = json.loads((root / "cache" / "dub" / "dub-report.json").read_text(encoding="utf-8"))
+    tight = next(item for item in report["segments"] if item["id"] == "tight")
+    assert tight["failed"] is False
+    assert tight["tempo"] == 1.667
+
+
+def test_one_unrecoverable_timing_line_is_silent_without_failing_video(tmp_path):
+    class OneLongLineCodec(_FakeCodec):
+        def decode(self, audio, *, sample_rate):
+            self.natural_ms = 19000 if audio.decode() == "cau hai" else 1000
+            return super().decode(audio, sample_rate=sample_rate)
+
+    root = _project(tmp_path, SEGMENTS)
+    events = execute_command(_command(root), dependencies={
+        "speech_synthesizer": _FakeSynthesizer(), "pcm_codec": OneLongLineCodec(),
+    })
+
+    assert events[-1].type is WorkerEventType.COMPLETED, events[-1].message
+    report = json.loads((root / "cache" / "dub" / "dub-report.json").read_text(encoding="utf-8"))
+    by_id = {item["id"]: item for item in report["segments"]}
+    assert by_id["b"]["failed"] is True
+    assert report["failed_count"] == 1
+
+
+def test_natural_short_speech_is_not_stretched_to_fill_silence(tmp_path):
+    root = _project(tmp_path, SEGMENTS)
+    events = execute_command(_command(root), dependencies={
+        "speech_synthesizer": _FakeSynthesizer(), "pcm_codec": _FakeCodec(natural_ms=200),
+    })
+    assert events[-1].type is WorkerEventType.COMPLETED
+    with wave.open(str(root / 'cache/dub/dub_vi.wav'), 'rb') as f:
+        f.setpos(int(.5 * RATE))
+        assert not np.frombuffer(f.readframes(100), dtype='<i2').any()
+
+
+def test_shortening_updates_subtitle_to_exact_spoken_text(tmp_path):
+    from app.core.translation.protocol import TranslationResult
+    class Translator:
+        def translate_batch(self, requests, target_language, glossary):
+            return [TranslationResult(requests[0].segment_id, 'Câu nói đầy đủ', 'Xin chào')]
+    class Codec(_FakeCodec):
+        def decode(self, audio, *, sample_rate):
+            self.natural_ms = 500 if audio.decode() == 'Xin chào' else 5000
+            return super().decode(audio, sample_rate=sample_rate)
+    root = _project(tmp_path, [{'id':'a', 'start_ms':0, 'end_ms':1000,
+                              'source_text':'你好', 'target_text':'Xin chào tất cả mọi người'}])
+    command = _command(root)
+    command.config['translation_config'] = {'translation_provider':'openai'}
+    events = execute_command(command, dependencies={'speech_synthesizer':_FakeSynthesizer(),
+        'pcm_codec':Codec(), 'translation_provider':Translator()})
+    assert events[-1].type is WorkerEventType.COMPLETED, events[-1].message
+    captions = json.loads((root/'cache/translation/translated_vi.json').read_text())
+    assert captions[0]['target_text'] == 'Xin chào'
+    assert captions[0]['optimized_translation'] == 'Xin chào'
+    report = json.loads((root/'cache/dub/dub-report.json').read_text())
+    assert captions[0]['end_ms'] == report['segments'][0]['end_ms']
+    assert report['segments'][0]['tempo'] <= 1.35
+
+
+def test_encoder_padding_does_not_force_fast_speech(tmp_path):
+    class PaddedCodec(_FakeCodec):
+        def decode(self, audio, *, sample_rate):
+            # A 400ms utterance surrounded by encoder/service silence.
+            return np.concatenate([np.zeros(RATE, dtype=np.int16),
+                np.full(int(.4 * RATE), 4000, dtype=np.int16), np.zeros(RATE * 2, dtype=np.int16)])
+    root = _project(tmp_path, [{'id':'a','start_ms':0,'end_ms':500,'target_text':'Chào'}])
+    events = execute_command(_command(root), dependencies={
+        'speech_synthesizer':_FakeSynthesizer(), 'pcm_codec':PaddedCodec()})
+    assert events[-1].type is WorkerEventType.COMPLETED, events[-1].message
+    report = json.loads((root/'cache/dub/dub-report.json').read_text())
+    assert report['segments'][0]['tempo'] == 1.0
+
+
+def test_regenerating_speech_does_not_borrow_pause_twice(tmp_path):
+    root = _project(tmp_path, [{'id':'a','start_ms':0,'end_ms':1000,'target_text':'Xin chào'}])
+    first = execute_command(_command(root), dependencies={
+        'speech_synthesizer':_FakeSynthesizer(), 'pcm_codec':_FakeCodec(natural_ms=2000)})
+    assert first[-1].type is WorkerEventType.COMPLETED
+    second = execute_command(_command(root), dependencies={
+        'speech_synthesizer':_FakeSynthesizer(), 'pcm_codec':_FakeCodec(natural_ms=5000)})
+    assert second[-1].type is WorkerEventType.FAILED
 
 
 def test_one_failed_line_leaves_its_window_silent_but_completes(tmp_path):

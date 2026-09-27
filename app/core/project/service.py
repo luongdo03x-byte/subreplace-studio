@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.languages import TARGET_LANGUAGE_CODES
+
 import json
 import shutil
 import uuid
@@ -24,8 +26,8 @@ class ProjectService:
         name: str,
         target_language: str,
     ) -> Project:
-        if target_language not in {"vi", "en"}:
-            raise ValueError("target language must be one of: vi, en")
+        if target_language not in TARGET_LANGUAGE_CODES:
+            raise ValueError(f"Unsupported target language: {target_language}")
         source = Path(source_path)
         if not source.is_file():
             raise FileNotFoundError(source)

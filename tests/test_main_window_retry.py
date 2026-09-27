@@ -120,6 +120,29 @@ def test_retry_matches_start_with_dubbing_on_and_erase_on(qapp, tmp_path):
     assert "erase_video" in workflow.retried
 
 
+def test_retry_refreshes_api_provider_key_and_model_from_form(qapp, tmp_path):
+    window = _build_window(qapp)
+    request = _request(tmp_path, translation_provider="openai", translation_model="gpt-5.6", api_key="old")
+    handle, _ = window.view_model.start(request)
+    window.session.current_project.completed_stages.add("analyze_media")
+    window._last_request = request
+    window.project_view.translation_provider.setCurrentIndex(
+        window.project_view.translation_provider.findData("gemini")
+    )
+    window.project_view.translation_model.setText("gemini-3.6-flash")
+    window.project_view.api_key.setText("new")
+    window.project_view.remember_api_key.setChecked(False)
+
+    window._retry_processing()
+
+    assert window._last_request.translation_provider == "gemini"
+    assert window._last_request.translation_model == "gemini-3.6-flash"
+    assert window._last_request.api_key == "new"
+    assert window.session.current_project.completed_stages == {"analyze_media"}
+    assert window.session.workflow.retried is not None
+    window.close()
+
+
 def test_desktop_routes_multi_video_selection_to_review_before_render(qapp, tmp_path, monkeypatch):
     window = _build_window(qapp)
     window.project_view.source_list.addItems([str(tmp_path/'2.mp4'), str(tmp_path/'1.mp4')])

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 class SubtitleStyle:
     font_name: str = "DejaVu Sans"
     font_size: int = 42
-    fill_color: str = "&H00FFFFFF"
-    outline_color: str = "&H00101010"
+    fill_color: str = "&H0000FFFF"
+    outline_color: str = "&H00000000"
     outline_width: float = 2.5
     shadow: float = 1.0
     alignment: int = 2

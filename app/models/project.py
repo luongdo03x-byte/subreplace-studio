@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.languages import TARGET_LANGUAGE_CODES
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,5 +23,5 @@ class Project:
     settings: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.target_language not in {"vi", "en"}:
-            raise ValueError("target_language must be 'vi' or 'en'")
+        if self.target_language not in TARGET_LANGUAGE_CODES:
+            raise ValueError(f"Unsupported target language: {self.target_language}")

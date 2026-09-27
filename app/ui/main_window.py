@@ -81,7 +81,7 @@ if PYSIDE6_AVAILABLE:
                 ("Project", self.project_view), ("Process", self.processing_view),
                 ("Preview", self.preview_view), ("Subtitle Editor", self.subtitle_editor),
                 ("Model Manager", self.model_manager_view), ("Diagnostics", self.diagnostics_view),
-                ("Duyệt phụ đề Việt", self.overlay_view),
+                ("Duyệt phụ đề", self.overlay_view),
             ]
             for name, widget in pages:
                 self.navigation.addItem(name); self.stack.addWidget(widget)
@@ -98,9 +98,13 @@ if PYSIDE6_AVAILABLE:
             self.overlay_view.approve_many_requested.connect(self._overlay_approve_many)
             self.overlay_view.y_changed.connect(self._overlay_y)
             self.overlay_view.style_changed.connect(self._overlay_style)
+            self.overlay_view.cancel_requested.connect(self._cancel_processing)
             self.overlay_view.render_requested.connect(self._overlay_export)
             self.overlay_view.resume_requested.connect(self._overlay_open)
             self.overlay_view.retry_requested.connect(self._overlay_retry)
+            self.overlay_view.dubbing_changed.connect(self._overlay_dubbing)
+            self.overlay_view.save_y_default_requested.connect(self._overlay_save_y_default)
+            self.overlay_view.clear_y_default_requested.connect(self._overlay_clear_y_default)
             self.processing_view.cancel_button.clicked.connect(self._cancel_processing)
             self.processing_view.retry_button.clicked.connect(self._retry_processing)
             self.diagnostics_view.export_button.clicked.connect(self._export_diagnostics)
@@ -177,9 +181,11 @@ if PYSIDE6_AVAILABLE:
             items = []
             for index, source_text in enumerate(sources, start=1):
                 request = self._request_from_form(source_text, batch_index=index, batch_total=len(sources))
-                prefix = f"{index:02d}_" if len(sources) > 1 else ""
-                output = self._output_dir / f"{prefix}{Path(source_text).stem}_{target}.mp4"
+                output = self._output_dir / f"{Path(source_text).stem}_{target}.mp4"
                 items.append(BatchItem(request, output, cleanup_project=len(sources) > 1))
+            if len({item.output_path for item in items}) != len(items):
+                QMessageBox.warning(self, 'Trùng tên video', 'Có nhiều video cùng tên. Hãy đổi tên nguồn hoặc xuất vào các thư mục riêng.')
+                return
             self._last_request = items[0].request if len(items) == 1 else None
             merged = None
             if view.merge_outputs.isChecked() and len(items) > 1:
@@ -213,10 +219,24 @@ if PYSIDE6_AVAILABLE:
             )
             self.signals.batch_finished.emit(result)
 
+        def _request_with_current_translation(self, request: ProjectStartRequest) -> ProjectStartRequest:
+            """Refresh credentials/model while preserving the failed project's checkpoint."""
+            view = self.project_view
+            return replace(
+                request,
+                translation_provider=str(view.translation_provider.currentData()),
+                translation_model=view.translation_model.text().strip(),
+                endpoint=view.endpoint.text().strip(),
+                api_key=view.api_key.text().strip(),
+                local_command=view.local_command.text().strip(),
+            )
+
         def _retry_processing(self) -> None:
             if self._batch_thread is not None and self._batch_thread.is_alive():
                 QMessageBox.information(self, "Hàng đợi", "Hàng đợi hiện tại vẫn đang chạy.")
                 return
+            if not self.project_view.save_api_key():
+                QMessageBox.warning(self, "API key", "Không thể lưu API key; key vẫn dùng được cho lần tiếp tục này.")
             if self._overlay_controller is not None:
                 self._overlay_retry()
                 return
@@ -245,6 +265,8 @@ if PYSIDE6_AVAILABLE:
             handle = self.session.current_handle
             if request is None or project is None or handle is None:
                 return
+            request = self._request_with_current_translation(request)
+            self._last_request = request
             try:
                 translation = self.view_model._translation_config(request)
                 # Validating a temporal plugin the user is not going to run would block
@@ -271,6 +293,9 @@ if PYSIDE6_AVAILABLE:
             else:
                 self.session.cancel()
             self.processing_view.cancel_button.setEnabled(False)
+            if self.overlay_view.timer.isActive():
+                self.overlay_view.status.setText('Đang dừng xử lý…')
+                self.overlay_view.cancel_button.setEnabled(False)
             self.processing_view.job_status.setText("Job: cancelling…")
 
         def _start_overlay(self, items, merged):
@@ -280,14 +305,14 @@ if PYSIDE6_AVAILABLE:
             self._overlay_execute(lambda: self._overlay_controller.prepare(items, merged_output=merged,
                 on_progress=self.signals.batch_stage.emit, on_item=self.signals.batch_item.emit))
 
-        def _overlay_execute(self, action):
+        def _overlay_execute(self, action, message="Đang chuẩn bị phụ đề / preview…"):
             if self._batch_thread is not None and self._batch_thread.is_alive():
                 return
             if self._overlay_controller is None:
                 return
             self._overlay_controller.cancel_event.clear()
             self._batch_controller = self._overlay_controller
-            self.overlay_view.setEnabled(False)
+            self.overlay_view.begin_work(message)
             self.processing_view.cancel_button.setEnabled(True)
             self.navigation.setCurrentRow(6)
             def run():
@@ -300,24 +325,37 @@ if PYSIDE6_AVAILABLE:
             self._batch_thread.start()
 
         def _on_overlay_finished(self, result, error):
-            self.overlay_view.setEnabled(True)
+            summary = 'Hoàn tất.'
+            if error:
+                summary = f'Lỗi: {error}'
+            elif isinstance(result, list):
+                failed = sum(bool(row.get('payload', {}).get('blocking')) for row in result)
+                summary = f'Đã chuẩn bị {len(result)} nguồn; {failed} nguồn cần xử lý lỗi.'
+            elif isinstance(result, BatchResult):
+                summary = ('Đã dừng.' if result.cancelled else
+                           f"Đã xuất {len(result.successful)}/{result.total or len(result.items)} video.")
+                if result.merge_error:
+                    summary += f' Lỗi gộp: {result.merge_error}'
+                failures = [item.error for item in result.items if item.error]
+                if failures:
+                    summary += ' ' + failures[0]
+            self.overlay_view.end_work(summary)
             self.processing_view.cancel_button.setEnabled(False)
             self.processing_view.retry_button.setEnabled(True)
             if self._overlay_controller:
                 self.overlay_view.show_sources(self._overlay_controller.rows())
-            if error:
-                self.overlay_view.status.setText(error)
-            elif isinstance(result, BatchResult):
+            self.overlay_view.status.setText(summary)
+            if isinstance(result, BatchResult):
                 self._on_batch_finished(result)
 
         def _overlay_approve(self, source_id, revision, fallback):
-            self._overlay_execute(lambda: self._overlay_controller.service.approve(source_id, revision, accept_fallback=fallback))
+            self._overlay_execute(lambda: self._overlay_controller.service.approve(source_id, revision, accept_fallback=fallback), "Đang duyệt nguồn đã chọn…")
 
         def _overlay_approve_many(self, items, fallback):
             def approve():
                 for source_id, revision in items:
                     self._overlay_controller.service.approve(source_id, revision, accept_fallback=fallback)
-            self._overlay_execute(approve)
+            self._overlay_execute(approve, "Đang duyệt các nguồn hợp lệ…")
 
         def _overlay_y(self, source_id, y):
             self._overlay_execute(lambda: self._overlay_controller.service.set_y(source_id, y))
@@ -327,11 +365,38 @@ if PYSIDE6_AVAILABLE:
             self._overlay_execute(lambda: self._overlay_controller.service.set_style(source_id, style))
 
         def _overlay_export(self):
-            self._overlay_execute(lambda: self._overlay_controller.export())
+            self._overlay_execute(lambda: self._overlay_controller.export(), "Đang xuất video đã duyệt…")
 
         def _overlay_retry(self):
             self._overlay_execute(lambda: self._overlay_controller.prepare(on_progress=self.signals.batch_stage.emit,
                                                                           on_item=self.signals.batch_item.emit))
+
+        def _overlay_dubbing(self, source_id, enabled):
+            def update():
+                self._overlay_controller.set_dubbing(source_id, enabled)
+                return self._overlay_controller.prepare(on_progress=self.signals.batch_stage.emit,
+                                                        on_item=self.signals.batch_item.emit)
+            self._overlay_execute(update)
+
+        def _overlay_save_y_default(self, source_id, y):
+            try:
+                controller = self._overlay_controller
+                height = controller.service.store.load(source_id)['payload']['info']['height']
+                controller.placement_preferences.save(y, height)
+                controller.service.saved_y_ratio = controller.placement_preferences.load()
+                self.overlay_view.status.setText(f'Đã lưu Y {y}/{height}. Video mới dùng vị trí này theo tỷ lệ chiều cao, không dò Y lại.')
+            except Exception as exc:
+                self.overlay_view.status.setText(str(exc))
+
+        def _overlay_clear_y_default(self):
+            from app.core.subtitle_overlay.preferences import PlacementPreferences
+            try:
+                PlacementPreferences().clear()
+                if self._overlay_controller:
+                    self._overlay_controller.service.saved_y_ratio = None
+                self.overlay_view.status.setText('Video mới sẽ tự dò Y. Vị trí của video đã chuẩn bị vẫn được giữ.')
+            except Exception as exc:
+                self.overlay_view.status.setText(str(exc))
 
         def _overlay_open(self):
             if self._batch_thread is not None and self._batch_thread.is_alive():

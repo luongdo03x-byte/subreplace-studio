@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 
 from app.core.credentials import CredentialStore
+from app.core.languages import TARGET_LANGUAGES
+from app.core.dubbing.languages import VOICES
 from app.providers.tts.edge import VOICE_FEMALE, VOICE_MALE
 
 from .qt_compat import PYSIDE6_AVAILABLE, require_pyside6
@@ -61,9 +63,12 @@ if PYSIDE6_AVAILABLE:
             layout.addRow("Thư mục video đã dịch", project_row)
 
             self.target_language = QComboBox()
-            self.target_language.addItem("Vietnamese", "vi")
-            self.target_language.addItem("English", "en")
-            layout.addRow("Ngôn ngữ đích", self.target_language)
+            for code, label in TARGET_LANGUAGES:
+                self.target_language.addItem(label, code)
+            layout.addRow("Chọn ngôn ngữ bản dịch", self.target_language)
+            self.language_hint = QLabel()
+            self.language_hint.setWordWrap(True)
+            layout.addRow(self.language_hint)
 
             self.translation_provider = QComboBox()
             for label, value in (("OpenAI", "openai"), ("Gemini", "gemini"), ("Custom API", "custom"), ("Local command", "local")):
@@ -114,6 +119,9 @@ if PYSIDE6_AVAILABLE:
             self.dub_rate.setText("+0%")
             layout.addRow("Tốc độ đọc cơ bản", self.dub_rate)
 
+            self.target_language.currentIndexChanged.connect(self._language_changed)
+            self._language_changed()
+
             self.duck_level = QComboBox()
             for label, ratio in DUCK_LEVELS:
                 self.duck_level.addItem(label, ratio)
@@ -124,13 +132,13 @@ if PYSIDE6_AVAILABLE:
             self.erase_subtitles.setChecked(False)
             self.erase_subtitles.toggled.connect(self._set_erase_visible)
             layout.addRow(self.erase_subtitles)
-            self.locked_overlay = QCheckBox('Phụ đề Việt xếp dưới — khóa vị trí và duyệt trước khi xuất')
+            self.locked_overlay = QCheckBox('Phụ đề dịch xếp dưới — khóa vị trí và duyệt trước khi xuất')
             self.locked_overlay.setChecked(True)
             layout.addRow(self.locked_overlay)
             self.erase_subtitles.toggled.connect(lambda checked: self.locked_overlay.setEnabled(not checked))
             self.subtitle_input = QLineEdit()
             self.subtitle_input.setPlaceholderText('Tùy chọn: file SRT/ASS, hoặc thư mục phụ đề cùng tên video; bỏ trống để dịch như cũ')
-            layout.addRow('Phụ đề Việt có sẵn', self.subtitle_input)
+            layout.addRow('Phụ đề đích có sẵn', self.subtitle_input)
 
             self.temporal_provider = QComboBox()
             for label, value in (("Classical only", "classical"), ("ProPainter", "propainter"), ("E2FGVI", "e2fgvi")):
@@ -174,6 +182,18 @@ if PYSIDE6_AVAILABLE:
             # The temporal plugin fields only mean anything while erasing.
             for widget in (self.temporal_provider, self._repo_row, self._checkpoint_row, self.fp16):
                 self._layout.setRowVisible(widget, visible and self.advanced.isChecked())
+
+        def _language_changed(self, *_):
+            code = self.target_language.currentData()
+            self.dub_enabled.setEnabled(True)
+            self.dub_enabled.setText(f'Lồng tiếng — {self.target_language.currentText()}')
+            for widget, voice in zip((self.dub_voice_female, self.dub_voice_male), VOICES[code]):
+                widget.clear()
+                widget.addItem(voice.split('-', 2)[-1].removesuffix('Neural'), voice)
+                widget.setEnabled(True)
+            self.language_hint.setText(
+                f'Cả lô dịch và lồng tiếng sang {self.target_language.currentText()}. '
+                f'Tên xuất: tên_gốc_{code}.mp4. Có thể tắt lồng tiếng để chỉ xuất phụ đề.')
 
         def _load_api_key(self) -> None:
             provider = str(self.translation_provider.currentData())

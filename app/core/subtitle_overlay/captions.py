@@ -14,6 +14,21 @@ def _time(value):
     return (int(h)*3600 + int(m)*60 + int(s))*1000 + int(fraction.ljust(3, '0'))
 
 
+def sanitize_cues(cues):
+    valid = [c for c in cues if c.text and c.text.strip()]
+    if not valid:
+        return ()
+    valid.sort(key=lambda c: (c.start_ms, c.end_ms))
+    sanitized = []
+    previous = 0
+    for c in valid:
+        start_ms = max(previous, c.start_ms)
+        end_ms = max(start_ms + 100, c.end_ms)
+        sanitized.append(Cue(c.id, start_ms, end_ms, c.text.strip()))
+        previous = end_ms
+    return tuple(sanitized)
+
+
 def validate_cues(cues):
     previous = 0
     for cue in cues:
@@ -53,17 +68,18 @@ def read_cues(path):
             start, end = lines[0].split('-->')
             text = re.sub(r'<[^>]*>', '', ' '.join(lines[1:]))
             cues.append(Cue(str(len(cues)+1), _time(start), _time(end), text))
+    cues = sanitize_cues(cues)
     validate_cues(cues)
     return tuple(cues)
 
 
-def _lines(words, metrics, width):
-    text = ' '.join(words)
+def _lines(words, metrics, width, joiner=" "):
+    text = joiner.join(words).strip()
     if metrics.width(text) <= width:
         return (text,)
     candidates = []
     for i in range(1, len(words)):
-        left, right = ' '.join(words[:i]), ' '.join(words[i:])
+        left, right = joiner.join(words[:i]).strip(), joiner.join(words[i:]).strip()
         a, b = metrics.width(left), metrics.width(right)
         if max(a, b) <= width:
             candidates.append((max(a, b), abs(a-b), left, right))
@@ -79,12 +95,24 @@ def segment_cues(cues, metrics, width):
         raise ValueError('No horizontal space for subtitles')
     result, warnings = [], []
     for cue in cues:
-        words = unicodedata.normalize('NFC', cue.text).split()
+        text = unicodedata.normalize('NFC', cue.text)
+        joiner = ' '
+        words = text.split()
+        if re.search(r'[\u0e00-\u0e7f\u3040-\u30ff\u3400-\u9fff]', text):
+            from PySide6.QtCore import QTextBoundaryFinder
+            finder = QTextBoundaryFinder(QTextBoundaryFinder.BoundaryType.Line, text)
+            encoded = text.encode('utf-16-le')
+            words, start = [], 0
+            while (end := finder.toNextBoundary()) != -1:
+                if end > start:
+                    words.append(encoded[start*2:end*2].decode('utf-16-le'))
+                start = end
+            joiner = ''
         groups = []
         while words:
             best = None
             for count in range(1, len(words)+1):
-                lines = _lines(words[:count], metrics, width)
+                lines = _lines(words[:count], metrics, width, joiner)
                 if lines is None:
                     break
                 best = (count, lines)

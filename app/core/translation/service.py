@@ -22,14 +22,16 @@ class TranslationService:
         target_language: str,
         glossary: Mapping[str, str],
     ) -> list[SubtitleSegment]:
-        if target_language not in {"vi", "en"}:
-            raise TranslationError("target language must be 'vi' or 'en'")
+        from app.core.languages import TARGET_LANGUAGE_CODES
+        if target_language not in TARGET_LANGUAGE_CODES:
+            raise TranslationError(f"Unsupported target language: {target_language}")
         requests = [
             TranslationRequest(
                 segment_id=item.id,
                 source_text=item.source_text,
                 previous_text=segments[index - 1].source_text if index > 0 else "",
                 next_text=segments[index + 1].source_text if index + 1 < len(segments) else "",
+                duration_ms=item.end_ms - item.start_ms,
             )
             for index, item in enumerate(segments)
         ]

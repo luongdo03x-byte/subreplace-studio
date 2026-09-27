@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.languages import TARGET_LANGUAGE_CODES
+
 import argparse
 import os
 import sys
@@ -22,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--subtitle', default='')
     parser.add_argument('--output', default='')
     parser.add_argument("--name", default="")
-    parser.add_argument("--target", choices=("vi", "en"), default="vi")
+    parser.add_argument("--target", choices=sorted(TARGET_LANGUAGE_CODES), default="vi")
     parser.add_argument("--translation-provider", choices=("openai", "gemini", "custom", "local"), default="openai")
     parser.add_argument("--translation-model", default="")
     parser.add_argument("--endpoint", default="")

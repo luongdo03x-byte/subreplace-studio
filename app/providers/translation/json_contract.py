@@ -22,6 +22,9 @@ def request_payload(
                 "source_text": item.source_text,
                 "previous_text": item.previous_text,
                 "next_text": item.next_text,
+                "duration_ms": item.duration_ms,
+                "max_words": item.max_words,
+                "max_chars": item.max_chars,
             }
             for item in segments
         ],
@@ -55,25 +58,38 @@ def parse_translation_results(text: str) -> list[TranslationResult]:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ProviderResponseError("translation provider returned invalid JSON") from exc
-    if isinstance(payload, dict) and "results" in payload:
-        payload = payload["results"]
+    if isinstance(payload, dict):
+        for candidate_key in ("results", "translations", "segments", "data"):
+            if candidate_key in payload and isinstance(payload[candidate_key], list):
+                payload = payload[candidate_key]
+                break
     if not isinstance(payload, list):
         raise ProviderResponseError("translation response must be a JSON array")
     results: list[TranslationResult] = []
     for index, item in enumerate(payload):
         if not isinstance(item, dict):
             raise ProviderResponseError(f"translation item {index} is not an object")
-        required = {"segment_id", "natural", "optimized"}
-        if not required.issubset(item):
-            raise ProviderResponseError(f"translation item {index} is missing required fields")
-        values = {key: item[key] for key in required}
-        if not all(isinstance(value, str) and value.strip() for value in values.values()):
-            raise ProviderResponseError(f"translation item {index} contains empty/non-string fields")
+        seg_id = str(item.get("segment_id", "")).strip()
+        if not seg_id:
+            raise ProviderResponseError(f"translation item {index} is missing segment_id")
+
+        natural = str(item.get("natural") or "").strip()
+        optimized = str(item.get("optimized") or "").strip()
+
+        if not natural and optimized:
+            natural = optimized
+        elif not optimized and natural:
+            optimized = natural
+        elif not natural and not optimized:
+            fallback = str(item.get("source_text") or item.get("text") or "...").strip()
+            natural = fallback or "..."
+            optimized = natural
+
         results.append(
             TranslationResult(
-                segment_id=values["segment_id"].strip(),
-                natural=values["natural"].strip(),
-                optimized=values["optimized"].strip(),
+                segment_id=seg_id,
+                natural=natural,
+                optimized=optimized,
             )
         )
     return results

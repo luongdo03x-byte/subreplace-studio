@@ -32,11 +32,12 @@ def _write_json(path, payload):
 
 
 class OverlayService:
-    def __init__(self, store, *, detector=None, cancel_event=None, on_progress=None):
+    def __init__(self, store, *, detector=None, cancel_event=None, on_progress=None, saved_y_ratio=None):
         self.store = store
         self._detector = detector
         self.cancel_event = cancel_event or threading.Event()
         self.on_progress = on_progress or (lambda message: None)
+        self.saved_y_ratio = saved_y_ratio
 
     @property
     def detector(self):
@@ -77,12 +78,19 @@ class OverlayService:
         if any(cue.end_ms > info['duration_ms'] + 50 for cue in cues):
             raise ValueError('Phụ đề vượt thời lượng video')
         display, warnings = segment_cues(cues, metrics, info['width'] - 2*(style.margin_x+style.outline+style.shadow))
+        manual_y = None
         if old and old['payload'].get('video_hash') == inputs['video_hash'] and old['payload'].get('detector_version') == DETECTOR_VERSION:
             band = BandResult(**old['payload']['band'])
+            manual_y = old['payload'].get('manual_y')
+        elif self.saved_y_ratio is not None:
+            manual_y = round(self.saved_y_ratio * info['height'])
+            band = BandResult(manual_y, 0, 0)
+            self.on_progress(f'Dùng Y đã lưu: {manual_y} px — bỏ qua dò vị trí.')
         else:
             band = detect_band(self._frames(sample_frames(video)), self.detector, (info['width'], info['height']))
-        layout = lock_layout(band, (info['width'], info['height']), metrics.line_height)
+        layout = lock_layout(band, (info['width'], info['height']), metrics.line_height, manual_y=manual_y)
         return self.store.save(source_id, {**inputs, 'info': info, 'band': asdict(band),
+            **({'manual_y': manual_y} if manual_y is not None else {}),
             'layout': asdict(layout), 'line_height': metrics.line_height,
             'display': [asdict(c) for c in display], 'warnings': list(warnings)+list(band.warnings),
             'blocking': ['Chưa tạo ảnh xem trước.'], 'previews': []})
@@ -146,7 +154,7 @@ class OverlayService:
             else:
                 timestamp = int((left+right)/2)
                 preview_ass = write_overlay_ass(artifacts/f'sample-{i}.ass',
-                    (DisplayCue('sample', 0, duration, ('ệ ợ ữ ậ ỗ ằ', 'Phụ đề tiếng Việt')),), style, layout, profile)
+                    (DisplayCue('sample', 0, duration, cues[0].lines),), style, layout, profile)
             image = render_preview(video, timestamp, preview_ass, profile, artifacts/f'{i+1}.png', self.cancel_event)
             previews.append({'path': str(image), 'timestamp_ms': timestamp, 'sample_text': sample_text,
                              'hash': fingerprint(image)})

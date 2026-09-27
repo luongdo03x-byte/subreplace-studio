@@ -10,6 +10,9 @@ class TranslationRequest:
     source_text: str
     previous_text: str
     next_text: str
+    duration_ms: int | None = None
+    max_words: int | None = None
+    max_chars: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -25,3 +25,39 @@ def test_review_blocks_bad_rows_and_emits_revision_bound_approval():
     view.show_sources([row])
     assert view.render_button.isEnabled()
     view.close()
+
+
+def test_review_can_change_dubbing_for_saved_source():
+    app = QApplication.instance() or QApplication([])
+    view = OverlayReviewView()
+    view.show_sources([{'id':'a', 'revision':3, 'approved':3, 'state':'approved',
+        'dub_enabled':True, 'payload':{}}])
+    changes = []
+    view.dubbing_changed.connect(lambda *args: changes.append(args))
+    assert view.dub_enabled.isChecked()
+    view.dub_enabled.setChecked(False)
+    view.apply_dubbing.click()
+    assert changes == [('a', False)]
+    view.close()
+
+
+def test_busy_review_shows_elapsed_and_keeps_cancel_available():
+    app = QApplication.instance() or QApplication([])
+    view = OverlayReviewView()
+    view.begin_work('Đang xuất video 1/2: 10.mp4')
+    assert view.progress.maximum() == 0
+    assert view.timer.isActive()
+    assert not view.render_button.isEnabled()
+    assert view.cancel_button.isEnabled()
+    cancelled = []
+    view.cancel_requested.connect(lambda: cancelled.append(True))
+    view.cancel_button.click()
+    assert cancelled == [True]
+    view._started -= 65
+    view._tick()
+    assert '01:05' in view.elapsed.text()
+    view.end_work('Hoàn tất.')
+    assert not view.timer.isActive()
+    assert view.status.text() == 'Hoàn tất.'
+    assert view.cancel_button.isHidden()
+    view.close()

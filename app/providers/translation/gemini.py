@@ -10,7 +10,7 @@ from .json_contract import parse_translation_results, prompt_for_translation
 
 
 class GeminiTranslationProvider:
-    def __init__(self, *, client: Any | None = None, model: str = "gemini-2.5-flash", api_key: str | None = None) -> None:
+    def __init__(self, *, client: Any | None = None, model: str = "gemini-3.6-flash", api_key: str | None = None) -> None:
         if client is None:
             try:
                 from google import genai

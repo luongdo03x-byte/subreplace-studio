@@ -2,6 +2,17 @@
 from __future__ import annotations
 
 import math
+import numpy as np
+
+
+def trim_speech_padding(samples, sample_rate):
+    """Remove service silence, retaining a 40ms margin around audible speech."""
+    level = np.abs(samples.astype(np.float64))
+    audible = np.flatnonzero(level > max(32, float(level.max(initial=0)) * .01))
+    if not len(audible):
+        raise ValueError('Speech service returned silent audio')
+    margin = round(sample_rate * .04)
+    return samples[max(0, int(audible[0]) - margin):min(len(samples), int(audible[-1]) + margin + 1)]
 
 # ffmpeg's atempo accepts 0.5-100 in a single stage, but anything past 2x in
 # one pass smears transients audibly. Chaining stages of tempo**(1/n) keeps the
