@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 class CredentialStore:
-    service_name = "subreplace-studio"
+    service_name = "subreplace-studio-next"
 
     def load(self, provider: str) -> str:
         try:

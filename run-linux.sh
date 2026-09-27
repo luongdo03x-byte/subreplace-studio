@@ -43,7 +43,7 @@ fi
 if [[ ! -x "$VENV/bin/subreplace-studio" ]]; then
   "$PYTHON" -m venv "$VENV"
   "$VENV/bin/python" -m pip install --upgrade pip wheel
-  "$VENV/bin/python" -m pip install -e "$ROOT_DIR[desktop,media,ai,cloud,dub]"
+  "$VENV/bin/python" -m pip install -e "$ROOT_DIR[desktop,media,ai,cloud,dub,youtube]"
 fi
 
 exec "$VENV/bin/subreplace-studio" "$@"

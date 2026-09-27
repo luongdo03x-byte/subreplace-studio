@@ -36,7 +36,7 @@ fi
 mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR"
 "$PYTHON" -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/python" -m pip install --upgrade pip wheel
-"$INSTALL_DIR/.venv/bin/python" -m pip install "$WHEEL[desktop,media,ai,cloud,dub]"
+"$INSTALL_DIR/.venv/bin/python" -m pip install "$WHEEL[desktop,media,ai,cloud,dub,youtube]"
 
 cat > "$BIN_DIR/subreplace-studio" <<EOF
 #!/usr/bin/env bash

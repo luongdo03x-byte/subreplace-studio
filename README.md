@@ -1,5 +1,13 @@
 # SubReplace Studio 0.4.0
 
+The integrated application includes the Next library and publishing workspace. Launch it with `subreplace-studio` or the `subreplace-studio-next` alias. Both use
+the `SUBREPLACE_NEXT_APP_DATA` override, `~/.local/share/subreplace-studio-next` on Linux, and a
+separate operating-system keyring namespace from older releases. Existing projects and API keys remain in their previous locations.
+
+The first Next phase adds a persistent SQLite Series/Episode library, filename-based episode parsing,
+missing/duplicate sequence diagnostics, final-video registration, YouTube desktop OAuth, resumable
+uploads, private scheduling, remote IDs, publication state, and an append-only audit trail.
+
 SubReplace Studio is a local Windows/Linux desktop pipeline for translating videos. The default desktop mode retains the original Chinese subtitles and places Vietnamese subtitles below them at a locked position for each source video.
 
 **Eraser rule:** no black rectangles, blur boxes, crop/zoom tricks, or translated text drawn over unerased Chinese. Low-confidence reconstruction is routed to review or an installed temporal inpainting provider.
@@ -59,7 +67,7 @@ In **Duyệt phụ đề Việt**, inspect five timestamped PNGs, adjust Y/style
 
 After updating, stop any old running job and restart the app using `run-phase1-linux.sh`. Reopen the saved batch and choose **Chuẩn bị lại / Retry**. Older batches are migrated to spoken-sentence timing: existing OCR/ASR and band data are retained, while translation and dubbing are regenerated once. The old translation is backed up as `translated_vi.before-speech-timing.json`. Translation credentials and network access are needed for regeneration. New previews require approval again.
 
-For sources with audio, captions follow the original ASR sentence intervals; corroborating OCR helps correct source text without replacing a complete spoken sentence with a fragment. Translation receives each sentence's duration. Dubbing retains natural speed where possible, borrows up to 1.2 seconds of the following pause, and never accelerates beyond 1.35×. It retries overly long lines with a shorter translation; captions use the exact revised spoken text and timing. A line that still cannot fit stops preparation with its timestamp instead of producing rushed or truncated speech. ASR text and timing still need review where recognition is inaccurate.
+For sources with audio, captions follow the original ASR sentence intervals; corroborating OCR helps correct source text without replacing a complete spoken sentence with a fragment. Translation receives each sentence's duration. Dubbing retains natural speed where possible, borrows up to one second of the following pause, and never accelerates beyond 2×. It retries overly long lines with a shorter translation; captions use the exact revised spoken text and timing. A line that still cannot fit is marked failed and left silent; preparation fails if every line fails. ASR text and timing still need review where recognition is inaccurate.
 
 Use **Lồng tiếng Việt (giảm giọng gốc khi đọc)** and **Áp dụng lồng tiếng và chuẩn bị lại** in the review screen to change a saved source. Enabled dubbing overlays Vietnamese speech and ducks the original audio while speaking; disabled dubbing keeps original audio and Vietnamese captions. Imported subtitle files remain subtitle-only.
 
