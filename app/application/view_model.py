@@ -42,6 +42,8 @@ class ProjectStartRequest:
     dub_default_gender: str = "female"
     dub_rate: str = "+0%"
     duck_ratio: int = 12
+    overlay_prepare_only: bool = False
+    subtitle_path: str = ""
 
 
 class StudioViewModel:
@@ -95,7 +97,7 @@ class StudioViewModel:
         elif provider == "gemini":
             required.append(("google.genai", "google-genai is required for the selected translation provider"))
         if request.dub_enabled:
-            required.append(("edge_tts", "edge-tts is required for Vietnamese dubbing"))
+            required.append(("edge_tts", "edge-tts is required for dubbing"))
         checks = []
         for module, message in required:
             available = bool(self.module_probe(module))
@@ -154,8 +156,8 @@ class StudioViewModel:
     def _dub_config(self, request: ProjectStartRequest) -> dict[str, object] | None:
         if not request.dub_enabled:
             return None
-        female = request.dub_voice_female.strip()
-        male = request.dub_voice_male.strip()
+        from app.core.dubbing.languages import resolve_voices
+        female, male = resolve_voices(request.target_language, request.dub_voice_female, request.dub_voice_male)
         if not female or not male:
             raise ValueError("dubbing requires both a female and a male voice id")
         if request.dub_default_gender not in {"female", "male"}:
@@ -200,6 +202,9 @@ class StudioViewModel:
             name=request.project_name.strip() or source.stem,
             target_language=request.target_language,
         )
+        if request.overlay_prepare_only:
+            project.settings['overlay_prepare_only'] = True
+            self.session.project_service.save(project)
         handle = self.session.start_full(
             project,
             translation_config=translation_config,

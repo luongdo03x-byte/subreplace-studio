@@ -9,6 +9,7 @@ tiep) de dong dung lo hong da bi bo lot boi phien ban test vo nghia truoc do.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -117,3 +118,44 @@ def test_retry_matches_start_with_dubbing_on_and_erase_on(qapp, tmp_path):
     assert workflow.retried == workflow.started
     assert "synthesize_speech" in workflow.retried
     assert "erase_video" in workflow.retried
+
+
+def test_retry_refreshes_api_provider_key_and_model_from_form(qapp, tmp_path):
+    window = _build_window(qapp)
+    request = _request(tmp_path, translation_provider="openai", translation_model="gpt-5.6", api_key="old")
+    handle, _ = window.view_model.start(request)
+    window.session.current_project.completed_stages.add("analyze_media")
+    window._last_request = request
+    window.project_view.translation_provider.setCurrentIndex(
+        window.project_view.translation_provider.findData("gemini")
+    )
+    window.project_view.translation_model.setText("gemini-3.6-flash")
+    window.project_view.api_key.setText("new")
+    window.project_view.remember_api_key.setChecked(False)
+
+    window._retry_processing()
+
+    assert window._last_request.translation_provider == "gemini"
+    assert window._last_request.translation_model == "gemini-3.6-flash"
+    assert window._last_request.api_key == "new"
+    assert window.session.current_project.completed_stages == {"analyze_media"}
+    assert window.session.workflow.retried is not None
+    window.close()
+
+
+def test_desktop_routes_multi_video_selection_to_review_before_render(qapp, tmp_path, monkeypatch):
+    window = _build_window(qapp)
+    window.project_view.source_list.addItems([str(tmp_path/'2.mp4'), str(tmp_path/'1.mp4')])
+    window.project_view.project_root.setText(str(tmp_path/'output'))
+    window.project_view.project_name.setText('batch')
+    window.project_view.merge_outputs.setChecked(True)
+    window.project_view.api_key.clear()
+    captured = []
+    monkeypatch.setattr(window, '_start_overlay', lambda items, merged: captured.append((items, merged)))
+    window._start_processing()
+    items, merged = captured[0]
+    assert [Path(i.request.source_path).name for i in items] == ['2.mp4','1.mp4']
+    assert all(i.request.overlay_prepare_only and not i.request.erase_subtitles for i in items)
+    assert merged.name == 'batch_vi_merged.mp4'
+    assert window.session.workflow.started is None
+    window.close()

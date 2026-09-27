@@ -24,6 +24,22 @@ class SubtitleDocumentService:
         self.project_service = project_service or ProjectService()
 
     @staticmethod
+    def _invalidate_overlay(project):
+        manifest = project.settings.get('overlay_manifest')
+        if not manifest:
+            return
+        from app.core.subtitle_overlay.store import OverlayStore
+        store = OverlayStore(Path(str(manifest)).with_suffix('.sqlite3'))
+        source_id = str(project.root.resolve())
+        try:
+            payload = store.load(source_id)['payload']
+        except KeyError:
+            return
+        payload.update(checked=False, previews=[], blocking=['Phụ đề đã sửa; cần chuẩn bị và duyệt lại.'])
+        # Atomic revision change rejects a source owned by an active renderer.
+        store.save(source_id, payload)
+
+    @staticmethod
     def _classified_path(project: Project) -> Path:
         return project.root / "cache" / "detection" / "classified.json"
 
@@ -72,6 +88,7 @@ class SubtitleDocumentService:
 
 
     def update_source_text(self, project: Project, segment_id: str, text: str) -> None:
+        self._invalidate_overlay(project)
         classified_path = self._classified_path(project)
         payload = self._read_array(classified_path)
         changed = False
@@ -88,6 +105,7 @@ class SubtitleDocumentService:
         self._invalidate(project, {"translate_events", "render_final"}, remove_translation=True)
 
     def set_review_decision(self, project: Project, segment_id: str, *, text_type: str) -> None:
+        self._invalidate_overlay(project)
         allowed = {"dialogue_subtitle", "watermark", "logo", "title", "scene_text", "ui_text", "decoration"}
         if text_type not in allowed:
             raise ValueError(f"unsupported review text_type: {text_type}")
@@ -123,6 +141,7 @@ class SubtitleDocumentService:
         self.project_service.save(project)
 
     def update_translation(self, project: Project, segment_id: str, text: str) -> None:
+        self._invalidate_overlay(project)
         translated_path = self._translated_path(project)
         payload = self._read_array(translated_path)
         changed = False

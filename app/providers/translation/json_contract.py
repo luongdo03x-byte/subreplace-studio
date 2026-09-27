@@ -22,6 +22,9 @@ def request_payload(
                 "source_text": item.source_text,
                 "previous_text": item.previous_text,
                 "next_text": item.next_text,
+                "duration_ms": item.duration_ms,
+                "max_words": item.max_words,
+                "max_chars": item.max_chars,
             }
             for item in segments
         ],

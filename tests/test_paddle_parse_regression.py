@@ -26,3 +26,25 @@ def test_singular_keys_still_supported():
 def test_empty_result():
     text, score = PaddleOCRProvider._parse_prediction([{"rec_texts": [], "rec_scores": []}])
     assert text == "" and score == 0.0
+
+
+def test_text_detector_accepts_numpy_polygons_and_nested_result():
+    import numpy as np
+    from app.providers.ocr.paddle_detection import PaddleTextDetector
+    polygons = np.array([[[1, 2], [10, 2], [10, 8], [1, 8]]])
+    for raw in ([{'dt_polys': polygons, 'dt_scores': np.array([.9])}],
+                [{'res': {'dt_polys': polygons, 'dt_scores': np.array([.9])}}]):
+        items = PaddleTextDetector._modern_items(raw)
+        assert len(items) == 1
+        assert PaddleTextDetector._bbox(items[0][0]) == (1, 2, 9, 6)
+
+
+def test_overlay_detector_can_use_detection_without_recognition(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import numpy as np
+    from app.providers.ocr.paddle_detection import PaddleTextDetector
+    engine = SimpleNamespace(predict=lambda image: [{'dt_polys': [[[1,2],[10,2],[10,8],[1,8]]]}])
+    monkeypatch.setitem(sys.modules, 'paddleocr', SimpleNamespace(TextDetection=lambda **kwargs: engine))
+    detector = PaddleTextDetector(detection_only=True)
+    assert detector.detect(np.zeros((20,20,3), dtype=np.uint8), 2)[0].bbox == (1,2,9,6)

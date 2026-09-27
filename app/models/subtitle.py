@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.languages import TARGET_LANGUAGE_CODES
+
 from dataclasses import dataclass
 
 from .enums import ReviewStatus, TextType
@@ -28,8 +30,8 @@ class SubtitleSegment:
     def __post_init__(self) -> None:
         if self.start_ms < 0 or self.end_ms <= self.start_ms:
             raise ValueError("subtitle timing must satisfy 0 <= start_ms < end_ms")
-        if self.target_language not in {"vi", "en"}:
-            raise ValueError("target_language must be 'vi' or 'en'")
+        if self.target_language not in TARGET_LANGUAGE_CODES:
+            raise ValueError(f"Unsupported target language: {self.target_language}")
 
     @property
     def translated_text(self) -> str:

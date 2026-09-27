@@ -24,7 +24,7 @@ if PYSIDE6_AVAILABLE:
             layout.addWidget(self.progress)
             self.job_status = QLabel("Job: idle")
             layout.addWidget(self.job_status)
-            self.retry_button = QPushButton("Retry video lỗi/chưa xong")
+            self.retry_button = QPushButton("Tiếp tục sau lỗi API / Retry")
             self.retry_button.setEnabled(False)
             layout.addWidget(self.retry_button)
             self.cancel_button = QPushButton("Dừng hàng đợi")
