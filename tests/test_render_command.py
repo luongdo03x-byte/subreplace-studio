@@ -146,3 +146,41 @@ def test_narration_is_split_for_the_sidechain_and_the_mix():
     assert sidechain.startswith("[orig][dubsc]"), sidechain
     assert mix.startswith("[ducked][dubmix]"), mix
     assert "dubmix" not in sidechain and "dubsc" not in mix
+
+
+def test_calculate_blur_box_dimensions_and_alignment():
+    from app.core.rendering.renderer import calculate_blur_box
+    from app.core.rendering.style import SubtitleStyle
+
+    style = SubtitleStyle(font_size=42)
+    # Frame 720x1280, anchor at (360, 900)
+    x, y, w, h = calculate_blur_box(frame_size=(720, 1280), anchor=(360, 900), style=style)
+    assert w == 662  # 720 * 0.92 = 662.4 -> 662 (even)
+    assert x == 28   # (720 - 662) / 2 = 29 -> 28 (even)
+    assert h == 100  # 42 * 2.4 = 100.8 -> 100 (even)
+    assert 0 <= y <= 1280 - h
+    assert y % 2 == 0
+    # Center of original text at anchor (360, 900) must be inside [y, y + h]
+    assert y <= 900 <= y + h
+
+
+def test_build_video_filter_with_and_without_blur():
+    from app.core.rendering.renderer import build_video_filter
+
+    no_blur = build_video_filter(ass_path="/tmp/t.ass")
+    assert no_blur == "ass=/tmp/t.ass"
+
+    with_blur = build_video_filter(ass_path="/tmp/t.ass", blur_box=(28, 800, 662, 100))
+    assert "boxblur=25:5" in with_blur
+    assert "crop=662:100:28:800" in with_blur
+    assert "overlay=28:800,ass=/tmp/t.ass" in with_blur
+
+
+def test_dubbed_filter_complex_includes_blur_box():
+    graph = build_filter_complex(
+        ass_path="/tmp/t.ass", dubbed=True, duck_ratio=12, blur_box=(20, 700, 500, 80)
+    )
+    assert "boxblur=25:5" in graph
+    assert "crop=500:80:20:700" in graph
+    assert "overlay=20:700,ass=/tmp/t.ass[v]" in graph
+    assert "sidechaincompress=" in graph

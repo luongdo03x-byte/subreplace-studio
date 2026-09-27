@@ -337,7 +337,8 @@ def _run_render_final(command: WorkerCommand, dependencies: dict[str, Any]) -> t
     translated_path = _project_path(command, "translated_path")
     output_path = _project_path(command, "output_path")
     srt_path = _project_path(command, "srt_path")
-    placement = SubtitlePlacement(str(config.get("subtitle_placement") or "below_anchor"))
+    placement = SubtitlePlacement(str(config.get("subtitle_placement") or "on_anchor"))
+    apply_blur = bool(config.get("apply_blur", True))
     dub_audio_path = _project_path(command, "dub_audio_path") if config.get("dub_audio_path") else None
     duck_ratio = int(config.get("duck_ratio", 12))
     report_path = _project_path(command, "report_path") if config.get("report_path") else None
@@ -364,6 +365,7 @@ def _run_render_final(command: WorkerCommand, dependencies: dict[str, Any]) -> t
         video=video_path, segments=segments, style=style,
         output_path=output_path, srt_path=srt_path,
         placement=placement, dub_audio_path=dub_audio_path, duck_ratio=duck_ratio,
+        apply_blur=apply_blur,
     )
     report = dict(result.placement_report)
     if report_path is not None:
